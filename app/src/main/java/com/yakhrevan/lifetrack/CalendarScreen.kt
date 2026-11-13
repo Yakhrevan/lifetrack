@@ -166,6 +166,7 @@ object CalendarStorage {
         context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit()
             .putString(KEY_ACTIVITIES, arr.toString())
             .apply()
+        CalendarEventNotificationScheduler.reconcile(context, items)
     }
 
     /**
@@ -304,6 +305,11 @@ fun CalendarScreen(
     // Activities list (loaded from SharedPreferences)
     var activities by remember { mutableStateOf(CalendarStorage.load(context)) }
     var calendarDataRevision by remember { mutableIntStateOf(0) }
+
+    // Reconcile persisted event reminders when Calendar is opened after an app update.
+    LaunchedEffect(context) {
+        CalendarEventNotificationScheduler.reconcile(context, CalendarStorage.load(context))
+    }
 
     fun persistActivities(updated: List<CalendarItem>) {
         activities = updated
