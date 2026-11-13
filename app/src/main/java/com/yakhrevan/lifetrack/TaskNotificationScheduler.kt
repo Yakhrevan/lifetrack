@@ -30,6 +30,10 @@ class TaskReminderWorker(
         val taskId = inputData.getString(KEY_TASK_ID) ?: return Result.failure()
         val title = inputData.getString(KEY_TITLE) ?: "Task Reminder"
         val message = inputData.getString(KEY_MESSAGE) ?: "You have a task scheduled."
+        // A queued reminder can outlive an edited, completed, or deleted task.
+        val currentTask = TaskRepository.getTaskById(applicationContext, taskId)
+            ?: return Result.success()
+        if (currentTask.isCompleted || currentTask.isArchived) return Result.success()
 
         // Check notification permission on Android 13+
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
@@ -109,7 +113,7 @@ object TaskNotificationScheduler {
         }
 
         val parsedTime = runCatching { LocalTime.parse(task.reminderTime) }.getOrNull() ?: return
-        val parsedDueDate = runCatching { LocalDate.parse(task.dueDate) }.getOrNull() ?: LocalDate.now()
+        val parsedDueDate = runCatching { LocalDate.parse(task.dueDate) }.getOrNull() ?: return
         val scheduledDateTime = parsedDueDate.atTime(parsedTime)
         val now = LocalDateTime.now()
 
