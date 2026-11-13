@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - feature/chart-rich-ui
+      - feature/lifetrack-12h-integration
   pull_request:
     branches:
       - main
