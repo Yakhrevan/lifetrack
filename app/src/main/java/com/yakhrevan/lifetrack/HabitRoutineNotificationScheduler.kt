@@ -33,6 +33,25 @@ class HabitRoutineReminderWorker(
         val message = inputData.getString(KEY_MESSAGE) ?: "Time for your scheduled habit or routine."
         val itemId = inputData.getString(KEY_ITEM_ID) ?: return Result.failure()
         val type = inputData.getString(KEY_TYPE) ?: "habit" // "habit" or "routine"
+        val reminderWeekdays = inputData.getString(KEY_REMINDER_WEEKDAYS)
+            ?.split(",")?.mapNotNull { it.toIntOrNull() }?.toSet().orEmpty()
+        val today = LocalDate.now()
+        // Re-check the live schedule at delivery time; stale work must never notify on an off-day.
+        if (type == "habit") {
+            val habit = HabitRoutineRepository.getHabitById(applicationContext, itemId)
+                ?: return Result.success()
+            if (habit.isPaused || habit.isArchived ||
+                !HabitRoutineRepository.isHabitScheduled(habit, today) ||
+                (reminderWeekdays.isNotEmpty() && today.dayOfWeek.value !in reminderWeekdays) ||
+                HabitRoutineRepository.getCompletion(applicationContext, itemId, today.toString())?.status == "completed"
+            ) return Result.success()
+        } else if (type == "routine") {
+            val routine = HabitRoutineRepository.getRoutineById(applicationContext, itemId)
+                ?: return Result.success()
+            if (routine.isPaused || routine.isArchived || !routine.reminderEnabled ||
+                !HabitRoutineRepository.isRoutineScheduled(routine, today)
+            ) return Result.success()
+        }
 
         // Check notification permission on Android 13+
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
@@ -97,6 +116,7 @@ class HabitRoutineReminderWorker(
         const val KEY_TITLE = "title"
         const val KEY_MESSAGE = "message"
         const val KEY_TYPE = "type"
+        const val KEY_REMINDER_WEEKDAYS = "reminder_weekdays"
     }
 }
 
@@ -126,14 +146,16 @@ object HabitRoutineNotificationScheduler {
     ) {
         val parsedTime = runCatching { LocalTime.parse(reminder.time) }.getOrNull() ?: return
         val now = LocalDateTime.now()
-        var nextTime = now.toLocalDate().atTime(parsedTime)
-        if (!nextTime.isAfter(now)) {
-            nextTime = nextTime.plusDays(1)
-        }
-
+        val nextDate = (0L..366L).asSequence()
+            .map { now.toLocalDate().plusDays(it) }
+            .firstOrNull { date ->
+                HabitRoutineRepository.isHabitScheduled(habit, date) &&
+                    (reminder.weekdays.isEmpty() || date.dayOfWeek.value in reminder.weekdays) &&
+                    (date != now.toLocalDate() || parsedTime.isAfter(now.toLocalTime()))
+            } ?: return
+        val nextTime = nextDate.atTime(parsedTime)
         val delayMillis = ChronoUnit.MILLIS.between(now, nextTime).coerceAtLeast(1000L)
         val workTag = "habit_reminder_${habit.id}_$index"
-
         val data = Data.Builder()
             .putString(HabitRoutineReminderWorker.KEY_ITEM_ID, habit.id)
             .putString(HabitRoutineReminderWorker.KEY_TITLE, "Habit: ${habit.name}")
@@ -142,13 +164,12 @@ object HabitRoutineNotificationScheduler {
                 if (reminder.notificationMessage.isNotBlank()) reminder.notificationMessage else "Time to complete: ${habit.name}"
             )
             .putString(HabitRoutineReminderWorker.KEY_TYPE, "habit")
+            .putString(HabitRoutineReminderWorker.KEY_REMINDER_WEEKDAYS, reminder.weekdays.sorted().joinToString(","))
             .build()
-
         val request = PeriodicWorkRequestBuilder<HabitRoutineReminderWorker>(24, TimeUnit.HOURS)
             .setInitialDelay(delayMillis, TimeUnit.MILLISECONDS)
             .setInputData(data)
             .build()
-
         WorkManager.getInstance(context).enqueueUniquePeriodicWork(
             workTag,
             ExistingPeriodicWorkPolicy.UPDATE,
@@ -164,31 +185,28 @@ object HabitRoutineNotificationScheduler {
 
     fun reconcileRoutineReminders(context: Context, routine: Routine) {
         cancelRoutineReminders(context, routine)
-
         if (routine.isPaused || routine.isArchived || !routine.reminderEnabled) return
-
         val parsedTime = runCatching { LocalTime.parse(routine.reminderTime) }.getOrNull() ?: return
         val now = LocalDateTime.now()
-        var nextTime = now.toLocalDate().atTime(parsedTime)
-        if (!nextTime.isAfter(now)) {
-            nextTime = nextTime.plusDays(1)
-        }
-
+        val nextDate = (0L..366L).asSequence()
+            .map { now.toLocalDate().plusDays(it) }
+            .firstOrNull { date ->
+                HabitRoutineRepository.isRoutineScheduled(routine, date) &&
+                    (date != now.toLocalDate() || parsedTime.isAfter(now.toLocalTime()))
+            } ?: return
+        val nextTime = nextDate.atTime(parsedTime)
         val delayMillis = ChronoUnit.MILLIS.between(now, nextTime).coerceAtLeast(1000L)
         val workTag = "routine_reminder_${routine.id}"
-
         val data = Data.Builder()
             .putString(HabitRoutineReminderWorker.KEY_ITEM_ID, routine.id)
             .putString(HabitRoutineReminderWorker.KEY_TITLE, "Routine: ${routine.name}")
             .putString(HabitRoutineReminderWorker.KEY_MESSAGE, "Ready to start your ${routine.name}?")
             .putString(HabitRoutineReminderWorker.KEY_TYPE, "routine")
             .build()
-
         val request = PeriodicWorkRequestBuilder<HabitRoutineReminderWorker>(24, TimeUnit.HOURS)
             .setInitialDelay(delayMillis, TimeUnit.MILLISECONDS)
             .setInputData(data)
             .build()
-
         WorkManager.getInstance(context).enqueueUniquePeriodicWork(
             workTag,
             ExistingPeriodicWorkPolicy.UPDATE,
