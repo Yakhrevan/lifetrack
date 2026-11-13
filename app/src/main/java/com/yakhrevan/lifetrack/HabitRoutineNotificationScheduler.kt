@@ -96,6 +96,9 @@ class HabitRoutineReminderWorker(
             notificationId,
             notificationId + 1
         )
+        val snoozePendingIntent = LifeTrackNotificationReceiver.createReminderSnoozePendingIntent(
+            applicationContext, itemId, type, title, message, notificationId, notificationId + 2
+        )
 
         val notification = NotificationCompat.Builder(applicationContext, channelId)
             .setSmallIcon(android.R.drawable.ic_dialog_info)
@@ -106,6 +109,7 @@ class HabitRoutineReminderWorker(
             .setAutoCancel(true)
             .setContentIntent(pendingIntent)
             .addAction(android.R.drawable.checkbox_on_background, "Mark Done", donePendingIntent)
+            .addAction(android.R.drawable.ic_lock_idle_alarm, "Snooze 10m", snoozePendingIntent)
             .build()
 
         manager.notify(notificationId, notification)
@@ -222,11 +226,12 @@ object HabitRoutineNotificationScheduler {
         WorkManager.getInstance(context).cancelUniqueWork("routine_reminder_${routine.id}")
     }
 
-    fun snoozeReminder(context: Context, itemId: String, title: String, message: String, minutes: Int = 10) {
+    fun snoozeReminder(context: Context, itemId: String, title: String, message: String, minutes: Int = 10, type: String = "habit") {
         val data = Data.Builder()
             .putString(HabitRoutineReminderWorker.KEY_ITEM_ID, itemId)
             .putString(HabitRoutineReminderWorker.KEY_TITLE, title)
             .putString(HabitRoutineReminderWorker.KEY_MESSAGE, message)
+            .putString(HabitRoutineReminderWorker.KEY_TYPE, type)
             .build()
 
         val request = OneTimeWorkRequestBuilder<HabitRoutineReminderWorker>()
