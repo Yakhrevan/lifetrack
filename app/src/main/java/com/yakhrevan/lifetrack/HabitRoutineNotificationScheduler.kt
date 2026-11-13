@@ -36,7 +36,7 @@ class HabitRoutineReminderWorker(
         val reminderWeekdays = inputData.getString(KEY_REMINDER_WEEKDAYS)
             ?.split(",")?.mapNotNull { it.toIntOrNull() }?.toSet().orEmpty()
         val reminderId = inputData.getString(KEY_REMINDER_ID).orEmpty()
-        val notificationId = "${type}_${itemId}_${reminderId}".hashCode()
+        val notificationId = inputData.getInt(KEY_NOTIFICATION_ID, "${type}_${itemId}_${reminderId}".hashCode())
         val today = LocalDate.now()
         // Re-check the live schedule at delivery time; stale work must never notify on an off-day.
         if (type == "habit") {
@@ -124,6 +124,7 @@ class HabitRoutineReminderWorker(
         const val KEY_TYPE = "type"
         const val KEY_REMINDER_WEEKDAYS = "reminder_weekdays"
         const val KEY_REMINDER_ID = "reminder_id"
+        const val KEY_NOTIFICATION_ID = "notification_id"
     }
 }
 
@@ -226,12 +227,13 @@ object HabitRoutineNotificationScheduler {
         WorkManager.getInstance(context).cancelUniqueWork("routine_reminder_${routine.id}")
     }
 
-    fun snoozeReminder(context: Context, itemId: String, title: String, message: String, minutes: Int = 10, type: String = "habit") {
+    fun snoozeReminder(context: Context, itemId: String, title: String, message: String, minutes: Int = 10, type: String = "habit", notificationId: Int = "${type}_${itemId}_".hashCode()) {
         val data = Data.Builder()
             .putString(HabitRoutineReminderWorker.KEY_ITEM_ID, itemId)
             .putString(HabitRoutineReminderWorker.KEY_TITLE, title)
             .putString(HabitRoutineReminderWorker.KEY_MESSAGE, message)
             .putString(HabitRoutineReminderWorker.KEY_TYPE, type)
+            .putInt(HabitRoutineReminderWorker.KEY_NOTIFICATION_ID, notificationId)
             .build()
 
         val request = OneTimeWorkRequestBuilder<HabitRoutineReminderWorker>()
