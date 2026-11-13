@@ -75,6 +75,9 @@ class TaskReminderWorker(
             taskId.hashCode(),
             taskId.hashCode() + 1
         )
+        val snoozePendingIntent = LifeTrackNotificationReceiver.createTaskSnoozePendingIntent(
+            applicationContext, taskId, title, taskId.hashCode(), taskId.hashCode() + 2
+        )
 
         val notification = NotificationCompat.Builder(applicationContext, channelId)
             .setSmallIcon(android.R.drawable.ic_popup_reminder)
@@ -85,6 +88,7 @@ class TaskReminderWorker(
             .setAutoCancel(true)
             .setContentIntent(pendingIntent)
             .addAction(android.R.drawable.checkbox_on_background, "Mark Done", donePendingIntent)
+            .addAction(android.R.drawable.ic_lock_idle_alarm, "Snooze 10m", snoozePendingIntent)
             .build()
 
         manager.notify(taskId.hashCode(), notification)
