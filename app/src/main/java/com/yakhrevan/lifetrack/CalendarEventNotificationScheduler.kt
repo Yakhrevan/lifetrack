@@ -50,32 +50,36 @@ object CalendarEventNotificationScheduler {
     fun schedule(context: Context, item: CalendarItem) {
         val workName = WORK_PREFIX + item.id
         WorkManager.getInstance(context).cancelUniqueWork(workName)
-        if (item.type != ActivityType.EVENT || item.isCompleted || item.reminder.isBlank()) return
+        scheduleNext(context, item, LocalDateTime.now(), ExistingWorkPolicy.REPLACE)
+    }
 
+    internal fun scheduleNext(
+        context: Context,
+        item: CalendarItem,
+        after: LocalDateTime,
+        policy: ExistingWorkPolicy
+    ) {
+        if (item.type != ActivityType.EVENT || item.isCompleted || item.reminder.isBlank()) return
         val eventDate = runCatching { LocalDate.parse(item.date) }.getOrNull() ?: return
         val eventTime = parseTime(item.startTime) ?: return
         val leadMinutes = parseLeadMinutes(item.reminder) ?: return
-        val now = LocalDateTime.now()
-        val nextEvent = nextOccurrence(item, eventDate, eventTime, now) ?: return
-        val notifyAt = nextEvent.minusMinutes(leadMinutes)
-        if (!notifyAt.isAfter(now)) {
-            // The reminder window for this occurrence has passed; schedule the next
-            // recurrence, if any, instead of firing a stale notification immediately.
+        val nextEvent = nextOccurrence(item, eventDate, eventTime, after) ?: return
+        var notifyAt = nextEvent.minusMinutes(leadMinutes)
+        if (!notifyAt.isAfter(after)) {
             val later = nextOccurrence(item, eventDate, eventTime, nextEvent.plusSeconds(1)) ?: return
-            enqueue(context, item, later.minusMinutes(leadMinutes), workName)
-            return
+            notifyAt = later.minusMinutes(leadMinutes)
         }
-        enqueue(context, item, notifyAt, workName)
+        if (notifyAt.isAfter(after)) enqueue(context, item, notifyAt, WORK_PREFIX + item.id, policy)
     }
 
-    private fun enqueue(context: Context, item: CalendarItem, notifyAt: LocalDateTime, workName: String) {
+    private fun enqueue(context: Context, item: CalendarItem, notifyAt: LocalDateTime, workName: String, policy: ExistingWorkPolicy) {
         val delay = ChronoUnit.MILLIS.between(LocalDateTime.now(), notifyAt).coerceAtLeast(1_000L)
         val data = Data.Builder().putString(KEY_EVENT_ID, item.id).build()
         val request = OneTimeWorkRequestBuilder<CalendarEventReminderWorker>()
             .setInitialDelay(delay, TimeUnit.MILLISECONDS)
             .setInputData(data)
             .build()
-        WorkManager.getInstance(context).enqueueUniqueWork(workName, ExistingWorkPolicy.REPLACE, request)
+        WorkManager.getInstance(context).enqueueUniqueWork(workName, policy, request)
     }
 
     internal fun nextOccurrence(
@@ -162,7 +166,6 @@ class CalendarEventReminderWorker(
                 applicationContext, item.id.hashCode(), openIntent,
                 PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
             )
-            val eventTime = CalendarEventNotificationScheduler.parseTime(item.startTime)
             val body = buildString {
                 append(if (item.isAllDay) "All-day event" else "Starts at ${item.startTime}")
                 if (item.location.isNotBlank()) append(" • ${item.location}")
@@ -182,8 +185,11 @@ class CalendarEventReminderWorker(
             )
         }
 
-        // Re-arm the next occurrence for recurring events. One-off events naturally stop.
-        CalendarEventNotificationScheduler.schedule(applicationContext, item)
+        // Append the next recurrence behind this completed work instead of cancelling
+        // the currently executing unique work request.
+        CalendarEventNotificationScheduler.scheduleNext(
+            applicationContext, item, LocalDateTime.now(), ExistingWorkPolicy.APPEND_OR_REPLACE
+        )
         return Result.success()
     }
 }
