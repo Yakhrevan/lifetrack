@@ -133,7 +133,7 @@ class LifeTrackNotificationReceiver : BroadcastReceiver() {
         val title = intent.getStringExtra(EXTRA_REMINDER_TITLE) ?: "LifeTrack Reminder"
         val message = intent.getStringExtra(EXTRA_REMINDER_MESSAGE) ?: "Snoozed reminder"
         val notifId = intent.getIntExtra(EXTRA_NOTIF_ID, itemId.hashCode())
-        HabitRoutineNotificationScheduler.snoozeReminder(context, itemId, title, message, 10, type)
+        HabitRoutineNotificationScheduler.snoozeReminder(context, itemId, title, message, 10, type, notifId)
         NotificationManagerCompat.from(context).cancel(notifId)
         Toast.makeText(context.applicationContext, "Reminder snoozed for 10 minutes", Toast.LENGTH_SHORT).show()
     }
