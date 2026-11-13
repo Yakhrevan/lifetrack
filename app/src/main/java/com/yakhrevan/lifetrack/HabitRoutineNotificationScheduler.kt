@@ -35,6 +35,8 @@ class HabitRoutineReminderWorker(
         val type = inputData.getString(KEY_TYPE) ?: "habit" // "habit" or "routine"
         val reminderWeekdays = inputData.getString(KEY_REMINDER_WEEKDAYS)
             ?.split(",")?.mapNotNull { it.toIntOrNull() }?.toSet().orEmpty()
+        val reminderId = inputData.getString(KEY_REMINDER_ID).orEmpty()
+        val notificationId = "${type}_${itemId}_${reminderId}".hashCode()
         val today = LocalDate.now()
         // Re-check the live schedule at delivery time; stale work must never notify on an off-day.
         if (type == "habit") {
@@ -83,7 +85,7 @@ class HabitRoutineReminderWorker(
         }
         val pendingIntent = PendingIntent.getActivity(
             applicationContext,
-            itemId.hashCode(),
+            notificationId,
             openIntent,
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
@@ -91,8 +93,8 @@ class HabitRoutineReminderWorker(
         val donePendingIntent = LifeTrackNotificationReceiver.createHabitDonePendingIntent(
             applicationContext,
             itemId,
-            itemId.hashCode(),
-            itemId.hashCode() + 1
+            notificationId,
+            notificationId + 1
         )
 
         val notification = NotificationCompat.Builder(applicationContext, channelId)
@@ -106,7 +108,7 @@ class HabitRoutineReminderWorker(
             .addAction(android.R.drawable.checkbox_on_background, "Mark Done", donePendingIntent)
             .build()
 
-        manager.notify(itemId.hashCode(), notification)
+        manager.notify(notificationId, notification)
 
         return Result.success()
     }
@@ -117,6 +119,7 @@ class HabitRoutineReminderWorker(
         const val KEY_MESSAGE = "message"
         const val KEY_TYPE = "type"
         const val KEY_REMINDER_WEEKDAYS = "reminder_weekdays"
+        const val KEY_REMINDER_ID = "reminder_id"
     }
 }
 
@@ -165,6 +168,7 @@ object HabitRoutineNotificationScheduler {
             )
             .putString(HabitRoutineReminderWorker.KEY_TYPE, "habit")
             .putString(HabitRoutineReminderWorker.KEY_REMINDER_WEEKDAYS, reminder.weekdays.sorted().joinToString(","))
+            .putString(HabitRoutineReminderWorker.KEY_REMINDER_ID, reminder.id)
             .build()
         val request = PeriodicWorkRequestBuilder<HabitRoutineReminderWorker>(24, TimeUnit.HOURS)
             .setInitialDelay(delayMillis, TimeUnit.MILLISECONDS)
