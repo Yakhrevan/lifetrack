@@ -121,10 +121,14 @@ class LifeTrackNotificationReceiver : BroadcastReceiver() {
         val habitId = intent.getStringExtra(EXTRA_HABIT_ID) ?: return
         val notifId = intent.getIntExtra(EXTRA_NOTIF_ID, 4201)
 
-        HabitRoutineRepository.markHabitComplete(context, habitId, LocalDate.now().toString())
+        val today = LocalDate.now().toString()
+        val habit = HabitRoutineRepository.getHabitById(context, habitId)
+        if (habit != null && !habit.isPaused && !habit.isArchived &&
+            HabitRoutineRepository.isHabitScheduled(habit, LocalDate.parse(today)) &&
+            HabitRoutineRepository.getCompletion(context, habitId, today)?.status != "completed"
+        ) HabitRoutineRepository.markHabitComplete(context, habitId, today)
         NotificationManagerCompat.from(context).cancel(notifId)
 
-        val habit = HabitRoutineRepository.getHabitById(context, habitId)
         val name = habit?.name ?: "Habit"
         Toast.makeText(context.applicationContext, "✓ '$name' marked as completed!", Toast.LENGTH_SHORT).show()
     }
@@ -133,9 +137,12 @@ class LifeTrackNotificationReceiver : BroadcastReceiver() {
         val routineId = intent.getStringExtra(EXTRA_REMINDER_ITEM_ID) ?: return
         val notificationId = intent.getIntExtra(EXTRA_NOTIF_ID, routineId.hashCode())
         val routine = HabitRoutineRepository.getRoutineById(context, routineId)
-        if (routine != null && !routine.isPaused && !routine.isArchived) {
-            HabitRoutineRepository.setRoutineCompletion(context, routineId, LocalDate.now().toString(), true)
-        }
+        val today = LocalDate.now().toString()
+        if (routine != null && !routine.isPaused && !routine.isArchived && routine.reminderEnabled &&
+            HabitRoutineRepository.isRoutineScheduled(routine, LocalDate.parse(today)) &&
+            HabitRoutineRepository.getSessionsForDate(context, today)
+                .none { it.routineId == routineId && it.isCompleted }
+        ) HabitRoutineRepository.setRoutineCompletion(context, routineId, today, true)
         NotificationManagerCompat.from(context).cancel(notificationId)
     }
 
@@ -173,7 +180,7 @@ class LifeTrackNotificationReceiver : BroadcastReceiver() {
         val notifId = intent.getIntExtra(EXTRA_NOTIF_ID, taskId.hashCode())
 
         val task = TaskRepository.getTaskById(context, taskId)
-        if (task != null && !task.isCompleted) {
+        if (task != null && !task.isCompleted && !task.isArchived) {
             TaskRepository.toggleTaskCompletion(context, taskId)
         }
         NotificationManagerCompat.from(context).cancel(notifId)
