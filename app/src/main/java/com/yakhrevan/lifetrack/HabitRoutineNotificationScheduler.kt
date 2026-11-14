@@ -29,8 +29,8 @@ class HabitRoutineReminderWorker(
 ) : CoroutineWorker(context, params) {
 
     override suspend fun doWork(): Result {
-        val title = inputData.getString(KEY_TITLE) ?: "LifeTrack Reminder"
-        val message = inputData.getString(KEY_MESSAGE) ?: "Time for your scheduled habit or routine."
+        var title = inputData.getString(KEY_TITLE) ?: "LifeTrack Reminder"
+        var message = inputData.getString(KEY_MESSAGE) ?: "Time for your scheduled habit or routine."
         val itemId = inputData.getString(KEY_ITEM_ID) ?: return Result.failure()
         val type = inputData.getString(KEY_TYPE) ?: "habit" // "habit" or "routine"
         val reminderWeekdays = inputData.getString(KEY_REMINDER_WEEKDAYS)
@@ -42,17 +42,25 @@ class HabitRoutineReminderWorker(
         if (type == "habit") {
             val habit = HabitRoutineRepository.getHabitById(applicationContext, itemId)
                 ?: return Result.success()
+            val currentReminder = habit.reminders.firstOrNull { it.id == reminderId && it.enabled }
+                ?: return Result.success()
             if (habit.isPaused || habit.isArchived ||
                 !HabitRoutineRepository.isHabitScheduled(habit, today) ||
                 (reminderWeekdays.isNotEmpty() && today.dayOfWeek.value !in reminderWeekdays) ||
                 HabitRoutineRepository.getCompletion(applicationContext, itemId, today.toString())?.status == "completed"
             ) return Result.success()
+            title = "Habit: ${habit.name}"
+            message = currentReminder.notificationMessage.ifBlank { "Time to complete: ${habit.name}" }
         } else if (type == "routine") {
             val routine = HabitRoutineRepository.getRoutineById(applicationContext, itemId)
                 ?: return Result.success()
             if (routine.isPaused || routine.isArchived || !routine.reminderEnabled ||
-                !HabitRoutineRepository.isRoutineScheduled(routine, today)
+                !HabitRoutineRepository.isRoutineScheduled(routine, today) ||
+                HabitRoutineRepository.getSessionsForDate(applicationContext, today.toString())
+                    .any { it.routineId == routine.id && it.isCompleted }
             ) return Result.success()
+            title = "Routine: ${routine.name}"
+            message = "Ready to start your ${routine.name}?"
         }
 
         // Check notification permission on Android 13+
@@ -90,14 +98,17 @@ class HabitRoutineReminderWorker(
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
 
-        val donePendingIntent = LifeTrackNotificationReceiver.createHabitDonePendingIntent(
-            applicationContext,
-            itemId,
-            notificationId,
-            notificationId + 1
-        )
+        val donePendingIntent = if (type == "routine") {
+            LifeTrackNotificationReceiver.createRoutineDonePendingIntent(
+                applicationContext, itemId, notificationId, notificationId + 1
+            )
+        } else {
+            LifeTrackNotificationReceiver.createHabitDonePendingIntent(
+                applicationContext, itemId, notificationId, notificationId + 1
+            )
+        }
         val snoozePendingIntent = LifeTrackNotificationReceiver.createReminderSnoozePendingIntent(
-            applicationContext, itemId, type, title, message, notificationId, notificationId + 2
+            applicationContext, itemId, type, title, message, notificationId, notificationId + 2, reminderId
         )
 
         val notification = NotificationCompat.Builder(applicationContext, channelId)
