@@ -30,10 +30,14 @@ class TaskReminderWorker(
         val taskId = inputData.getString(KEY_TASK_ID) ?: return Result.failure()
         val title = inputData.getString(KEY_TITLE) ?: "Task Reminder"
         val message = inputData.getString(KEY_MESSAGE) ?: "You have a task scheduled."
+        val expectedDate = inputData.getString(KEY_EXPECTED_DATE)
+        val expectedTime = inputData.getString(KEY_EXPECTED_TIME)
         // A queued reminder can outlive an edited, completed, or deleted task.
         val currentTask = TaskRepository.getTaskById(applicationContext, taskId)
             ?: return Result.success()
         if (currentTask.isCompleted || currentTask.isArchived) return Result.success()
+        if (expectedDate != null && currentTask.dueDate != expectedDate) return Result.success()
+        if (expectedTime != null && currentTask.reminderTime != expectedTime) return Result.success()
 
         // Check notification permission on Android 13+
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
@@ -100,6 +104,8 @@ class TaskReminderWorker(
         const val KEY_TASK_ID = "task_id"
         const val KEY_TITLE = "title"
         const val KEY_MESSAGE = "message"
+        const val KEY_EXPECTED_DATE = "expected_date"
+        const val KEY_EXPECTED_TIME = "expected_time"
     }
 }
 
@@ -139,6 +145,8 @@ object TaskNotificationScheduler {
             .putString(TaskReminderWorker.KEY_TASK_ID, task.id)
             .putString(TaskReminderWorker.KEY_TITLE, "Task: ${task.title}")
             .putString(TaskReminderWorker.KEY_MESSAGE, messageText)
+            .putString(TaskReminderWorker.KEY_EXPECTED_DATE, task.dueDate)
+            .putString(TaskReminderWorker.KEY_EXPECTED_TIME, task.reminderTime)
             .build()
 
         val request = OneTimeWorkRequestBuilder<TaskReminderWorker>()
