@@ -52,6 +52,22 @@ object CalendarEventNotificationScheduler {
         scheduleNext(context, item, LocalDateTime.now(), ExistingWorkPolicy.REPLACE)
     }
 
+    fun snooze(context: Context, eventId: String, minutes: Int = 10) {
+        val data = Data.Builder()
+            .putString(KEY_EVENT_ID, eventId)
+            .putBoolean(KEY_IS_SNOOZE, true)
+            .build()
+        val request = OneTimeWorkRequestBuilder<CalendarEventReminderWorker>()
+            .setInitialDelay(minutes.coerceAtLeast(1).toLong(), TimeUnit.MINUTES)
+            .setInputData(data)
+            .build()
+        WorkManager.getInstance(context).enqueueUniqueWork(
+            "calendar_event_snooze_$eventId",
+            ExistingWorkPolicy.REPLACE,
+            request
+        )
+    }
+
     internal fun scheduleNext(
         context: Context,
         item: CalendarItem,
@@ -129,6 +145,7 @@ object CalendarEventNotificationScheduler {
     }
 
     private const val KEY_EVENT_ID = "calendar_event_id"
+    internal const val KEY_IS_SNOOZE = "calendar_event_is_snooze"
 
     internal fun eventIdKey() = KEY_EVENT_ID
 }
@@ -140,6 +157,7 @@ class CalendarEventReminderWorker(
     override suspend fun doWork(): Result {
         val eventId = inputData.getString(CalendarEventNotificationScheduler.eventIdKey())
             ?: return Result.failure()
+        val isSnooze = inputData.getBoolean(CalendarEventNotificationScheduler.KEY_IS_SNOOZE, false)
         val item = CalendarStorage.load(applicationContext).firstOrNull {
             it.id == eventId && it.type == ActivityType.EVENT && !it.isCompleted
         } ?: return Result.success()
@@ -171,8 +189,12 @@ class CalendarEventReminderWorker(
                 if (item.location.isNotBlank()) append(" • ${item.location}")
                 if (item.description.isNotBlank()) append("\n${item.description}")
             }
+            val notificationId = ("calendar_event_" + item.id).hashCode()
+            val snoozePending = LifeTrackNotificationReceiver.createCalendarEventSnoozePendingIntent(
+                applicationContext, item.id, notificationId, notificationId + 1
+            )
             notificationManager.notify(
-                ("calendar_event_" + item.id).hashCode(),
+                notificationId,
                 NotificationCompat.Builder(applicationContext, channelId)
                     .setSmallIcon(android.R.drawable.ic_dialog_info)
                     .setContentTitle(item.title)
@@ -181,15 +203,18 @@ class CalendarEventReminderWorker(
                     .setPriority(NotificationCompat.PRIORITY_HIGH)
                     .setAutoCancel(true)
                     .setContentIntent(pending)
+                    .addAction(android.R.drawable.ic_lock_idle_alarm, "Snooze 10m", snoozePending)
                     .build()
             )
         }
 
         // Append the next recurrence behind this completed work instead of cancelling
         // the currently executing unique work request.
-        CalendarEventNotificationScheduler.scheduleNext(
-            applicationContext, item, LocalDateTime.now(), ExistingWorkPolicy.APPEND_OR_REPLACE
-        )
+        if (!isSnooze) {
+            CalendarEventNotificationScheduler.scheduleNext(
+                applicationContext, item, LocalDateTime.now(), ExistingWorkPolicy.APPEND_OR_REPLACE
+            )
+        }
         return Result.success()
     }
 }
