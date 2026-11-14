@@ -238,12 +238,13 @@ object HabitRoutineNotificationScheduler {
         WorkManager.getInstance(context).cancelUniqueWork("routine_reminder_${routine.id}")
     }
 
-    fun snoozeReminder(context: Context, itemId: String, title: String, message: String, minutes: Int = 10, type: String = "habit", notificationId: Int = "${type}_${itemId}_".hashCode()) {
+    fun snoozeReminder(context: Context, itemId: String, title: String, message: String, minutes: Int = 10, type: String = "habit", notificationId: Int = "${type}_${itemId}_".hashCode(), reminderId: String = "") {
         val data = Data.Builder()
             .putString(HabitRoutineReminderWorker.KEY_ITEM_ID, itemId)
             .putString(HabitRoutineReminderWorker.KEY_TITLE, title)
             .putString(HabitRoutineReminderWorker.KEY_MESSAGE, message)
             .putString(HabitRoutineReminderWorker.KEY_TYPE, type)
+            .putString(HabitRoutineReminderWorker.KEY_REMINDER_ID, reminderId)
             .putInt(HabitRoutineReminderWorker.KEY_NOTIFICATION_ID, notificationId)
             .build()
 
