@@ -36,6 +36,7 @@ class HabitRoutineReminderWorker(
         val reminderWeekdays = inputData.getString(KEY_REMINDER_WEEKDAYS)
             ?.split(",")?.mapNotNull { it.toIntOrNull() }?.toSet().orEmpty()
         val reminderId = inputData.getString(KEY_REMINDER_ID).orEmpty()
+        val expectedTime = inputData.getString(KEY_EXPECTED_TIME)
         val notificationId = inputData.getInt(KEY_NOTIFICATION_ID, "${type}_${itemId}_${reminderId}".hashCode())
         val today = LocalDate.now()
         // Re-check the live schedule at delivery time; stale work must never notify on an off-day.
@@ -45,8 +46,9 @@ class HabitRoutineReminderWorker(
             val currentReminder = habit.reminders.firstOrNull { it.id == reminderId && it.enabled }
                 ?: return Result.success()
             if (habit.isPaused || habit.isArchived ||
+                (expectedTime != null && currentReminder.time != expectedTime) ||
                 !HabitRoutineRepository.isHabitScheduled(habit, today) ||
-                (reminderWeekdays.isNotEmpty() && today.dayOfWeek.value !in reminderWeekdays) ||
+                (currentReminder.weekdays.isNotEmpty() && today.dayOfWeek.value !in currentReminder.weekdays) ||
                 HabitRoutineRepository.getCompletion(applicationContext, itemId, today.toString())?.status == "completed"
             ) return Result.success()
             title = "Habit: ${habit.name}"
@@ -135,6 +137,7 @@ class HabitRoutineReminderWorker(
         const val KEY_TYPE = "type"
         const val KEY_REMINDER_WEEKDAYS = "reminder_weekdays"
         const val KEY_REMINDER_ID = "reminder_id"
+        const val KEY_EXPECTED_TIME = "expected_time"
         const val KEY_NOTIFICATION_ID = "notification_id"
     }
 }
@@ -150,18 +153,16 @@ object HabitRoutineNotificationScheduler {
 
         if (habit.isPaused || habit.isArchived) return
 
-        habit.reminders.forEachIndexed { index, reminder ->
-            if (reminder.enabled) {
-                scheduleHabitReminder(context, habit, reminder, index)
-            }
-        }
+        val enabledReminders = habit.reminders.filter { it.enabled }
+        enabledReminders.forEach { reminder -> scheduleHabitReminder(context, habit, reminder) }
+        context.getSharedPreferences("lifetrack_reminder_schedule_ids", Context.MODE_PRIVATE)
+            .edit().putStringSet("habit_${habit.id}", enabledReminders.map { it.id }.toSet()).apply()
     }
 
     private fun scheduleHabitReminder(
         context: Context,
         habit: Habit,
-        reminder: HabitReminder,
-        index: Int
+        reminder: HabitReminder
     ) {
         val parsedTime = runCatching { LocalTime.parse(reminder.time) }.getOrNull() ?: return
         val now = LocalDateTime.now()
@@ -174,7 +175,7 @@ object HabitRoutineNotificationScheduler {
             } ?: return
         val nextTime = nextDate.atTime(parsedTime)
         val delayMillis = ChronoUnit.MILLIS.between(now, nextTime).coerceAtLeast(1000L)
-        val workTag = "habit_reminder_${habit.id}_$index"
+        val workTag = "habit_reminder_${habit.id}_${reminder.id}"
         val data = Data.Builder()
             .putString(HabitRoutineReminderWorker.KEY_ITEM_ID, habit.id)
             .putString(HabitRoutineReminderWorker.KEY_TITLE, "Habit: ${habit.name}")
@@ -185,6 +186,7 @@ object HabitRoutineNotificationScheduler {
             .putString(HabitRoutineReminderWorker.KEY_TYPE, "habit")
             .putString(HabitRoutineReminderWorker.KEY_REMINDER_WEEKDAYS, reminder.weekdays.sorted().joinToString(","))
             .putString(HabitRoutineReminderWorker.KEY_REMINDER_ID, reminder.id)
+            .putString(HabitRoutineReminderWorker.KEY_EXPECTED_TIME, reminder.time)
             .build()
         val request = PeriodicWorkRequestBuilder<HabitRoutineReminderWorker>(24, TimeUnit.HOURS)
             .setInitialDelay(delayMillis, TimeUnit.MILLISECONDS)
@@ -198,9 +200,13 @@ object HabitRoutineNotificationScheduler {
     }
 
     fun cancelHabitReminders(context: Context, habit: Habit) {
-        for (i in 0..10) {
-            WorkManager.getInstance(context).cancelUniqueWork("habit_reminder_${habit.id}_$i")
-        }
+        val workManager = WorkManager.getInstance(context)
+        val prefs = context.getSharedPreferences("lifetrack_reminder_schedule_ids", Context.MODE_PRIVATE)
+        val scheduledIds = prefs.getStringSet("habit_${habit.id}", emptySet()).orEmpty().toSet()
+        scheduledIds.forEach { workManager.cancelUniqueWork("habit_reminder_${habit.id}_$it") }
+        prefs.edit().remove("habit_${habit.id}").apply()
+        // Cancel names used by older releases during the migration to stable reminder IDs.
+        for (i in 0..10) workManager.cancelUniqueWork("habit_reminder_${habit.id}_$i")
     }
 
     fun reconcileRoutineReminders(context: Context, routine: Routine) {
