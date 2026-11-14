@@ -28,6 +28,7 @@ class LifeTrackNotificationReceiver : BroadcastReceiver() {
             ACTION_COMPLETE_TASK -> handleCompleteTask(context, intent)
             ACTION_SNOOZE_REMINDER -> handleSnoozeReminder(context, intent)
             ACTION_SNOOZE_TASK -> handleSnoozeTask(context, intent)
+            ACTION_SNOOZE_CALENDAR_EVENT -> handleSnoozeCalendarEvent(context, intent)
         }
     }
 
@@ -147,6 +148,14 @@ class LifeTrackNotificationReceiver : BroadcastReceiver() {
         Toast.makeText(context.applicationContext, "Task reminder snoozed for 10 minutes", Toast.LENGTH_SHORT).show()
     }
 
+    private fun handleSnoozeCalendarEvent(context: Context, intent: Intent) {
+        val eventId = intent.getStringExtra(EXTRA_CALENDAR_EVENT_ID) ?: return
+        val notifId = intent.getIntExtra(EXTRA_NOTIF_ID, ("calendar_event_" + eventId).hashCode())
+        CalendarEventNotificationScheduler.snooze(context, eventId, 10)
+        NotificationManagerCompat.from(context).cancel(notifId)
+        Toast.makeText(context.applicationContext, "Event reminder snoozed for 10 minutes", Toast.LENGTH_SHORT).show()
+    }
+
     private fun handleCompleteTask(context: Context, intent: Intent) {
         val taskId = intent.getStringExtra(EXTRA_TASK_ID) ?: return
         val notifId = intent.getIntExtra(EXTRA_NOTIF_ID, taskId.hashCode())
@@ -168,6 +177,7 @@ class LifeTrackNotificationReceiver : BroadcastReceiver() {
         const val ACTION_COMPLETE_TASK = "com.yakhrevan.lifetrack.ACTION_COMPLETE_TASK"
         const val ACTION_SNOOZE_REMINDER = "com.yakhrevan.lifetrack.ACTION_SNOOZE_REMINDER"
         const val ACTION_SNOOZE_TASK = "com.yakhrevan.lifetrack.ACTION_SNOOZE_TASK"
+        const val ACTION_SNOOZE_CALENDAR_EVENT = "com.yakhrevan.lifetrack.ACTION_SNOOZE_CALENDAR_EVENT"
 
         const val EXTRA_AMOUNT_ML = "extra_amount_ml"
         const val EXTRA_NOTIF_ID = "extra_notif_id"
@@ -177,6 +187,7 @@ class LifeTrackNotificationReceiver : BroadcastReceiver() {
         const val EXTRA_REMINDER_TYPE = "extra_reminder_type"
         const val EXTRA_REMINDER_TITLE = "extra_reminder_title"
         const val EXTRA_REMINDER_MESSAGE = "extra_reminder_message"
+        const val EXTRA_CALENDAR_EVENT_ID = "extra_calendar_event_id"
 
         fun createWaterActionPendingIntent(
             context: Context,
@@ -250,6 +261,23 @@ class LifeTrackNotificationReceiver : BroadcastReceiver() {
                 action = ACTION_SNOOZE_TASK
                 putExtra(EXTRA_TASK_ID, taskId)
                 putExtra(EXTRA_REMINDER_TITLE, title)
+                putExtra(EXTRA_NOTIF_ID, notifId)
+            }
+            return PendingIntent.getBroadcast(
+                context, requestCode, intent,
+                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+            )
+        }
+
+        fun createCalendarEventSnoozePendingIntent(
+            context: Context,
+            eventId: String,
+            notifId: Int,
+            requestCode: Int
+        ): PendingIntent {
+            val intent = Intent(context, LifeTrackNotificationReceiver::class.java).apply {
+                action = ACTION_SNOOZE_CALENDAR_EVENT
+                putExtra(EXTRA_CALENDAR_EVENT_ID, eventId)
                 putExtra(EXTRA_NOTIF_ID, notifId)
             }
             return PendingIntent.getBroadcast(
