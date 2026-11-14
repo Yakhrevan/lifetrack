@@ -107,12 +107,13 @@ object CalendarEventNotificationScheduler {
             .find(value) ?: return null
         val amount = match.groupValues[1].toLongOrNull() ?: return null
         val unit = match.groupValues[2].lowercase(Locale.ROOT)
-        return when {
+        val minutes = when {
             unit.startsWith("min") -> amount
             unit.startsWith("hour") || unit == "hr" -> amount * 60L
             unit == "day" -> amount * 1_440L
-            else -> null
-        }.coerceAtLeast(0L)
+            else -> return null
+        }
+        return minutes.coerceAtLeast(0L)
     }
 
     internal fun parseTime(value: String): LocalTime? {
