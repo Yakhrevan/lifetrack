@@ -33,8 +33,6 @@ class HabitRoutineReminderWorker(
         var message = inputData.getString(KEY_MESSAGE) ?: "Time for your scheduled habit or routine."
         val itemId = inputData.getString(KEY_ITEM_ID) ?: return Result.failure()
         val type = inputData.getString(KEY_TYPE) ?: "habit" // "habit" or "routine"
-        val reminderWeekdays = inputData.getString(KEY_REMINDER_WEEKDAYS)
-            ?.split(",")?.mapNotNull { it.toIntOrNull() }?.toSet().orEmpty()
         val reminderId = inputData.getString(KEY_REMINDER_ID).orEmpty()
         val expectedTime = inputData.getString(KEY_EXPECTED_TIME)
         val notificationId = inputData.getInt(KEY_NOTIFICATION_ID, "${type}_${itemId}_${reminderId}".hashCode())
