@@ -76,7 +76,8 @@ object CalendarEventNotificationScheduler {
     ) {
         if (item.type != ActivityType.EVENT || item.isCompleted || item.reminder.isBlank()) return
         val eventDate = runCatching { LocalDate.parse(item.date) }.getOrNull() ?: return
-        val eventTime = parseTime(item.startTime) ?: return
+        // All-day events have no wall-clock start time; anchor their reminder to local midnight.
+        val eventTime = if (item.isAllDay) LocalTime.MIDNIGHT else parseTime(item.startTime) ?: return
         val leadMinutes = parseLeadMinutes(item.reminder) ?: return
         val nextEvent = nextOccurrence(item, eventDate, eventTime, after) ?: return
         val reminderTime = nextEvent.minusMinutes(leadMinutes)
