@@ -79,12 +79,11 @@ object CalendarEventNotificationScheduler {
         val eventTime = parseTime(item.startTime) ?: return
         val leadMinutes = parseLeadMinutes(item.reminder) ?: return
         val nextEvent = nextOccurrence(item, eventDate, eventTime, after) ?: return
-        var notifyAt = nextEvent.minusMinutes(leadMinutes)
-        if (!notifyAt.isAfter(after)) {
-            val later = nextOccurrence(item, eventDate, eventTime, nextEvent.plusSeconds(1)) ?: return
-            notifyAt = later.minusMinutes(leadMinutes)
-        }
-        if (notifyAt.isAfter(after)) enqueue(context, item, notifyAt, WORK_PREFIX + item.id, policy)
+        val reminderTime = nextEvent.minusMinutes(leadMinutes)
+        // If an event is created inside its reminder window, notify promptly rather than
+        // silently skipping the event because its configured lead time is already past.
+        val notifyAt = if (reminderTime.isAfter(after)) reminderTime else after.plusSeconds(1)
+        enqueue(context, item, notifyAt, WORK_PREFIX + item.id, policy)
     }
 
     private fun enqueue(context: Context, item: CalendarItem, notifyAt: LocalDateTime, workName: String, policy: ExistingWorkPolicy) {
