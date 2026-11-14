@@ -145,7 +145,8 @@ class LifeTrackNotificationReceiver : BroadcastReceiver() {
         val title = intent.getStringExtra(EXTRA_REMINDER_TITLE) ?: "LifeTrack Reminder"
         val message = intent.getStringExtra(EXTRA_REMINDER_MESSAGE) ?: "Snoozed reminder"
         val notifId = intent.getIntExtra(EXTRA_NOTIF_ID, itemId.hashCode())
-        HabitRoutineNotificationScheduler.snoozeReminder(context, itemId, title, message, 10, type, notifId)
+        val reminderId = intent.getStringExtra(EXTRA_REMINDER_ID).orEmpty()
+        HabitRoutineNotificationScheduler.snoozeReminder(context, itemId, title, message, 10, type, notifId, reminderId)
         NotificationManagerCompat.from(context).cancel(notifId)
         Toast.makeText(context.applicationContext, "Reminder snoozed for 10 minutes", Toast.LENGTH_SHORT).show()
     }
@@ -199,6 +200,7 @@ class LifeTrackNotificationReceiver : BroadcastReceiver() {
         const val EXTRA_REMINDER_TYPE = "extra_reminder_type"
         const val EXTRA_REMINDER_TITLE = "extra_reminder_title"
         const val EXTRA_REMINDER_MESSAGE = "extra_reminder_message"
+        const val EXTRA_REMINDER_ID = "extra_reminder_id"
         const val EXTRA_CALENDAR_EVENT_ID = "extra_calendar_event_id"
 
         fun createWaterActionPendingIntent(
@@ -263,7 +265,8 @@ class LifeTrackNotificationReceiver : BroadcastReceiver() {
             title: String,
             message: String,
             notifId: Int,
-            requestCode: Int
+            requestCode: Int,
+            reminderId: String = ""
         ): PendingIntent {
             val intent = Intent(context, LifeTrackNotificationReceiver::class.java).apply {
                 action = ACTION_SNOOZE_REMINDER
@@ -271,6 +274,7 @@ class LifeTrackNotificationReceiver : BroadcastReceiver() {
                 putExtra(EXTRA_REMINDER_TYPE, type)
                 putExtra(EXTRA_REMINDER_TITLE, title)
                 putExtra(EXTRA_REMINDER_MESSAGE, message)
+                putExtra(EXTRA_REMINDER_ID, reminderId)
                 putExtra(EXTRA_NOTIF_ID, notifId)
             }
             return PendingIntent.getBroadcast(
