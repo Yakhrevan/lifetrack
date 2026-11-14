@@ -145,6 +145,10 @@ class MainActivity:ComponentActivity(){
     var dismissedUpdateVersion by remember { mutableStateOf<String?>(null) }
     val lifecycleOwner = LocalLifecycleOwner.current
     // Demo seeding is disabled for release builds.
+    // Keep reminder work durable and rebuild all categories from saved repositories.
+    LaunchedEffect(context) {
+        ReminderReconciliationScheduler.ensureScheduled(context)
+    }
 
     // Release cleanup: remove previously seeded synthetic records once and never seed samples again.
     // User-created records are preserved unless they carry the explicit DEMO DATA marker.
