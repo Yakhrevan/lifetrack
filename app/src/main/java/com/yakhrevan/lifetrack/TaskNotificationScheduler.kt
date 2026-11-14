@@ -28,16 +28,18 @@ class TaskReminderWorker(
 
     override suspend fun doWork(): Result {
         val taskId = inputData.getString(KEY_TASK_ID) ?: return Result.failure()
-        val title = inputData.getString(KEY_TITLE) ?: "Task Reminder"
-        val message = inputData.getString(KEY_MESSAGE) ?: "You have a task scheduled."
         val expectedDate = inputData.getString(KEY_EXPECTED_DATE)
         val expectedTime = inputData.getString(KEY_EXPECTED_TIME)
         // A queued reminder can outlive an edited, completed, or deleted task.
         val currentTask = TaskRepository.getTaskById(applicationContext, taskId)
             ?: return Result.success()
-        if (currentTask.isCompleted || currentTask.isArchived) return Result.success()
+        if (currentTask.isCompleted || currentTask.isArchived || !currentTask.reminderEnabled) return Result.success()
+        if (currentTask.reminderTime.isNullOrBlank()) return Result.success()
         if (expectedDate != null && currentTask.dueDate != expectedDate) return Result.success()
         if (expectedTime != null && currentTask.reminderTime != expectedTime) return Result.success()
+        val title = "Task: ${currentTask.title}"
+        val message = currentTask.notificationMessage.takeIf { it.isNotBlank() }
+            ?: "Due: ${currentTask.title}"
 
         // Check notification permission on Android 13+
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
@@ -166,10 +168,14 @@ object TaskNotificationScheduler {
     }
 
     fun snoozeTask(context: Context, taskId: String, title: String, minutes: Int = 10) {
+        val task = TaskRepository.getTaskById(context, taskId) ?: return
+        if (task.isCompleted || task.isArchived || !task.reminderEnabled || task.reminderTime.isNullOrBlank()) return
         val data = Data.Builder()
             .putString(TaskReminderWorker.KEY_TASK_ID, taskId)
-            .putString(TaskReminderWorker.KEY_TITLE, title)
-            .putString(TaskReminderWorker.KEY_MESSAGE, "Snoozed task reminder")
+            .putString(TaskReminderWorker.KEY_TITLE, "Task: ${task.title}")
+            .putString(TaskReminderWorker.KEY_MESSAGE, task.notificationMessage.ifBlank { "Due: ${task.title}" })
+            .putString(TaskReminderWorker.KEY_EXPECTED_DATE, task.dueDate)
+            .putString(TaskReminderWorker.KEY_EXPECTED_TIME, task.reminderTime)
             .build()
 
         val request = OneTimeWorkRequestBuilder<TaskReminderWorker>()
