@@ -20,7 +20,6 @@ import java.time.LocalDate
 import java.time.LocalDateTime
 import java.time.LocalTime
 import java.time.format.DateTimeFormatter
-import java.time.format.DateTimeFormatterBuilder
 import java.time.temporal.ChronoUnit
 import java.util.Locale
 import java.util.concurrent.TimeUnit
@@ -88,21 +87,21 @@ object CalendarEventNotificationScheduler {
         time: LocalTime,
         after: LocalDateTime
     ): LocalDateTime? {
-        var date = firstDate
-        repeat(3_660) {
+        repeat(3_660) { occurrenceIndex ->
+            val date = when (item.repeatOption) {
+                RepeatOption.NONE, RepeatOption.CUSTOM -> if (occurrenceIndex == 0) firstDate else return null
+                RepeatOption.DAILY -> firstDate.plusDays(occurrenceIndex.toLong())
+                RepeatOption.WEEKLY -> firstDate.plusWeeks(occurrenceIndex.toLong())
+                // Calculate each month from the original date to avoid Jan 31 -> Feb 28 -> Mar 28 drift.
+                RepeatOption.MONTHLY -> runCatching { firstDate.plusMonths(occurrenceIndex.toLong()) }.getOrNull() ?: return null
+            }
             val candidate = date.atTime(time)
             if (candidate.isAfter(after)) return candidate
-            date = when (item.repeatOption) {
-                RepeatOption.DAILY -> date.plusDays(1)
-                RepeatOption.WEEKLY -> date.plusWeeks(1)
-                RepeatOption.MONTHLY -> runCatching { date.plusMonths(1) }.getOrNull() ?: return null
-                else -> return null
-            }
         }
         return null
     }
 
-    private fun parseLeadMinutes(value: String): Long? {
+    internal fun parseLeadMinutes(value: String): Long? {
         val match = Regex("(\\d+)\\s*(minute|min|hour|hr|day)", RegexOption.IGNORE_CASE)
             .find(value) ?: return null
         val amount = match.groupValues[1].toLongOrNull() ?: return null
@@ -170,7 +169,7 @@ class CalendarEventReminderWorker(
             val body = buildString {
                 append(if (item.isAllDay) "All-day event" else "Starts at ${item.startTime}")
                 if (item.location.isNotBlank()) append(" • ${item.location}")
-                if (item.description.isNotBlank()) append("\\n${item.description}")
+                if (item.description.isNotBlank()) append("\n${item.description}")
             }
             notificationManager.notify(
                 ("calendar_event_" + item.id).hashCode(),
