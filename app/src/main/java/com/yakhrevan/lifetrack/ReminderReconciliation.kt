@@ -44,27 +44,33 @@ class ReminderReconciliationWorker(
  * System broadcasts are deliberately limited to events that invalidate local-time
  * scheduling assumptions. No exact-alarm permission is required.
  */
-class ReminderReconciliationReceiver : BroadcastReceiver() {
-    override fun onReceive(context: Context, intent: Intent?) {
-        if (intent?.action !in RECONCILE_ACTIONS) return
+object ReminderReconciliationScheduler {
+    private const val UNIQUE_RECONCILIATION_WORK = "lifetrack_reminder_reconciliation"
+    private const val PERIODIC_RECONCILIATION_WORK = "lifetrack_reminder_reconciliation_periodic"
 
+    fun ensureScheduled(context: Context) {
         val workManager = WorkManager.getInstance(context)
         workManager.enqueueUniqueWork(
             UNIQUE_RECONCILIATION_WORK,
-            ExistingWorkPolicy.REPLACE,
+            ExistingWorkPolicy.KEEP,
             OneTimeWorkRequestBuilder<ReminderReconciliationWorker>().build()
         )
         workManager.enqueueUniquePeriodicWork(
             PERIODIC_RECONCILIATION_WORK,
-            ExistingPeriodicWorkPolicy.UPDATE,
+            ExistingPeriodicWorkPolicy.KEEP,
             PeriodicWorkRequestBuilder<ReminderReconciliationWorker>(12, TimeUnit.HOURS).build()
         )
     }
+}
+
+class ReminderReconciliationReceiver : BroadcastReceiver() {
+    override fun onReceive(context: Context, intent: Intent?) {
+        if (intent?.action !in RECONCILE_ACTIONS) return
+
+        ReminderReconciliationScheduler.ensureScheduled(context)
+    }
 
     companion object {
-        private const val UNIQUE_RECONCILIATION_WORK = "lifetrack_reminder_reconciliation"
-        private const val PERIODIC_RECONCILIATION_WORK = "lifetrack_reminder_reconciliation_periodic"
-
         private val RECONCILE_ACTIONS = setOf(
             Intent.ACTION_BOOT_COMPLETED,
             Intent.ACTION_DATE_CHANGED,
