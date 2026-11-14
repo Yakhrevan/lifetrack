@@ -25,6 +25,7 @@ class LifeTrackNotificationReceiver : BroadcastReceiver() {
             ACTION_LOG_WATER -> handleLogWater(context, intent)
             ACTION_SNOOZE_WATER -> handleSnoozeWater(context, intent)
             ACTION_COMPLETE_HABIT -> handleCompleteHabit(context, intent)
+            ACTION_COMPLETE_ROUTINE -> handleCompleteRoutine(context, intent)
             ACTION_COMPLETE_TASK -> handleCompleteTask(context, intent)
             ACTION_SNOOZE_REMINDER -> handleSnoozeReminder(context, intent)
             ACTION_SNOOZE_TASK -> handleSnoozeTask(context, intent)
@@ -128,6 +129,16 @@ class LifeTrackNotificationReceiver : BroadcastReceiver() {
         Toast.makeText(context.applicationContext, "✓ '$name' marked as completed!", Toast.LENGTH_SHORT).show()
     }
 
+    private fun handleCompleteRoutine(context: Context, intent: Intent) {
+        val routineId = intent.getStringExtra(EXTRA_REMINDER_ITEM_ID) ?: return
+        val notificationId = intent.getIntExtra(EXTRA_NOTIF_ID, routineId.hashCode())
+        val routine = HabitRoutineRepository.getRoutineById(context, routineId)
+        if (routine != null && !routine.isPaused && !routine.isArchived) {
+            HabitRoutineRepository.setRoutineCompletion(context, routineId, LocalDate.now().toString(), true)
+        }
+        NotificationManagerCompat.from(context).cancel(notificationId)
+    }
+
     private fun handleSnoozeReminder(context: Context, intent: Intent) {
         val itemId = intent.getStringExtra(EXTRA_REMINDER_ITEM_ID) ?: return
         val type = intent.getStringExtra(EXTRA_REMINDER_TYPE) ?: "habit"
@@ -174,6 +185,7 @@ class LifeTrackNotificationReceiver : BroadcastReceiver() {
         const val ACTION_LOG_WATER = "com.yakhrevan.lifetrack.ACTION_LOG_WATER"
         const val ACTION_SNOOZE_WATER = "com.yakhrevan.lifetrack.ACTION_SNOOZE_WATER"
         const val ACTION_COMPLETE_HABIT = "com.yakhrevan.lifetrack.ACTION_COMPLETE_HABIT"
+        const val ACTION_COMPLETE_ROUTINE = "com.yakhrevan.lifetrack.ACTION_COMPLETE_ROUTINE"
         const val ACTION_COMPLETE_TASK = "com.yakhrevan.lifetrack.ACTION_COMPLETE_TASK"
         const val ACTION_SNOOZE_REMINDER = "com.yakhrevan.lifetrack.ACTION_SNOOZE_REMINDER"
         const val ACTION_SNOOZE_TASK = "com.yakhrevan.lifetrack.ACTION_SNOOZE_TASK"
@@ -223,6 +235,23 @@ class LifeTrackNotificationReceiver : BroadcastReceiver() {
                 context,
                 requestCode,
                 intent,
+                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+            )
+        }
+
+        fun createRoutineDonePendingIntent(
+            context: Context,
+            routineId: String,
+            notifId: Int,
+            requestCode: Int
+        ): PendingIntent {
+            val intent = Intent(context, LifeTrackNotificationReceiver::class.java).apply {
+                action = ACTION_COMPLETE_ROUTINE
+                putExtra(EXTRA_REMINDER_ITEM_ID, routineId)
+                putExtra(EXTRA_NOTIF_ID, notifId)
+            }
+            return PendingIntent.getBroadcast(
+                context, requestCode, intent,
                 PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
             )
         }
