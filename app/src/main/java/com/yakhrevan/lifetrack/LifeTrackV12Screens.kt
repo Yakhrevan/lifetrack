@@ -76,7 +76,7 @@ fun TodayPlannerScreen(
             TaskRepository.getTasks(context), CalendarStorage.load(context),
             HabitRoutineRepository.getHabits(context), HabitRoutineRepository.getCompletions(context),
             HabitRoutineRepository.getRoutines(context), HabitRoutineRepository.getRoutineSessions(context),
-            StudyRepository.loadSessions(context))
+            StudyRepository.loadSessions(context), StudyRepository.loadTopics(context))
     }
     val shown = entries.filter { filter == "All" || (filter == "Pending" && !it.completed) || (filter == "Done" && it.completed) }
 
@@ -134,22 +134,12 @@ fun NotificationInboxScreen(
     val context = LocalContext.current
     var refresh by remember { mutableIntStateOf(0) }
     var filter by remember { mutableStateOf("All") }
-    val now = System.currentTimeMillis()
     val history = remember(refresh) { NotificationHistoryRepository.read(context) }
-    val tasks = remember(refresh) { TaskRepository.getTasks(context) }
-    val queued = tasks.filter { it.reminderEnabled && !it.isCompleted && !it.isArchived }
-        .mapNotNull { task ->
-            val time = runCatching { java.time.LocalTime.parse(task.reminderTime) }.getOrNull()
-                ?: return@mapNotNull null
-            val today = LocalDate.now()
-            val scheduledAt = if (TaskReminderSchedule.repeating(task)) {
-                if (TaskReminderSchedule.isScheduledFor(task, today)) today.atTime(time)
-                else TaskReminderSchedule.nextOccurrence(task, java.time.LocalDateTime.now())
-            } else runCatching { LocalDate.parse(task.dueDate).atTime(time) }.getOrNull()
-            val due = scheduledAt?.atZone(java.time.ZoneId.systemDefault())?.toInstant()?.toEpochMilli()
-                ?: return@mapNotNull null
-            ReminderRecord("Tasks", task.id, task.title, if (due < now) "MISSED" else "UPCOMING", due)
-        }
+    val queued = remember(refresh) { ReminderQueueProjector.project(
+        java.time.LocalDateTime.now(), TaskRepository.getTasks(context), CalendarStorage.load(context),
+        HabitRoutineRepository.getHabits(context), HabitRoutineRepository.getRoutines(context),
+        HabitRoutineRepository.getCompletions(context), HabitRoutineRepository.getRoutineSessions(context)
+    ) }
     val records = (queued + history).distinctBy { "${it.module}:${it.itemId}:${it.state}" }
         .filter { filter == "All" || it.state == filter.uppercase() }
         .sortedByDescending { it.timestampMs }.take(250)

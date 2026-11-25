@@ -99,6 +99,7 @@ class WaterReminderWorker(context: Context, params: WorkerParameters) : Coroutin
 
         return try {
             NotificationManagerCompat.from(applicationContext).notify(4102, notification)
+            NotificationHistoryRepository.record(applicationContext, "Water", "daily_water", "Hydration reminder", "DELIVERED")
             Result.success()
         } catch (_: SecurityException) {
             Result.success()

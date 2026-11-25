@@ -164,7 +164,6 @@ class MainActivity:ComponentActivity(){
     // Real-data-first onboarding: never create synthetic tracker entries automatically.
     var logs by remember { mutableStateOf(repository.loadEntries()) }
     var appRefreshToken by remember { mutableIntStateOf(0) }
-    var showUsageAccessDialog by remember { mutableStateOf(false) }
     var availableUpdate by remember { mutableStateOf<LifeTrackUpdate?>(null) }
     var updateCheckFinished by remember { mutableStateOf(false) }
     var dismissedUpdateVersion by remember { mutableStateOf<String?>(null) }
@@ -225,16 +224,12 @@ class MainActivity:ComponentActivity(){
     ) {
         logs = repository.loadEntries()
         appRefreshToken++
-        showUsageAccessDialog = !ScreenTimeRepository.hasUsageAccessPermission(context)
     }
     DisposableEffect(lifecycleOwner) {
         val observer = LifecycleEventObserver { _, event ->
             if (event == Lifecycle.Event.ON_RESUME) {
                 logs = repository.loadEntries()
                 appRefreshToken++
-                if (ScreenTimeRepository.hasUsageAccessPermission(context)) {
-                    showUsageAccessDialog = false
-                }
             }
         }
         lifecycleOwner.lifecycle.addObserver(observer)
@@ -242,25 +237,15 @@ class MainActivity:ComponentActivity(){
     }
     LaunchedEffect(Unit) {
         val requiredPermissions = buildList {
-            if (ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_COARSE_LOCATION) != PackageManager.PERMISSION_GRANTED) {
-                add(Manifest.permission.ACCESS_COARSE_LOCATION)
-            }
-            if (ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED) {
-                add(Manifest.permission.ACCESS_FINE_LOCATION)
-            }
             if (android.os.Build.VERSION.SDK_INT >= 33 &&
                 ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
                 add(Manifest.permission.POST_NOTIFICATIONS)
-            }
-            if (ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
-                add(Manifest.permission.RECORD_AUDIO)
             }
         }
         if (requiredPermissions.isNotEmpty()) startupPermissionLauncher.launch(requiredPermissions.toTypedArray())
         else {
             logs = repository.loadEntries()
             appRefreshToken++
-            showUsageAccessDialog = !ScreenTimeRepository.hasUsageAccessPermission(context)
         }
     }
 
@@ -287,22 +272,8 @@ class MainActivity:ComponentActivity(){
         )
     }
 
-    if (showUsageAccessDialog) {
-        AlertDialog(
-            onDismissRequest = { showUsageAccessDialog = false },
-            title = { Text("Enable Screen Time access") },
-            text = { Text("LifeTrack needs Android Usage Access to read device screen-time statistics. This is a separate system setting and cannot be granted by the normal permission popup. You can enable it now or continue without Screen Time data.") },
-            confirmButton = {
-                TextButton(onClick = {
-                    showUsageAccessDialog = false
-                    ScreenTimeRepository.openUsageAccessSettings(context)
-                }) { Text("Open Settings") }
-            },
-            dismissButton = {
-                TextButton(onClick = { showUsageAccessDialog = false }) { Text("Not now") }
-            }
-        )
-    }
+    // Voice, location and Usage Access permissions are requested only when the
+    // corresponding Voice / Weather / Digital Wellbeing feature is opened.
 
     LaunchedEffect(appRefreshToken) {
         // Re-read persisted tracker data after permission flow and refresh startup-dependent data.

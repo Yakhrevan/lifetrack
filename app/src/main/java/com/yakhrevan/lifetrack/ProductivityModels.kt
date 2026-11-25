@@ -5,6 +5,7 @@ import org.json.JSONArray
 import org.json.JSONObject
 import java.time.Instant
 import java.time.LocalDate
+import java.time.LocalDateTime
 import java.time.LocalTime
 import java.time.ZoneId
 
@@ -66,6 +67,64 @@ object NotificationHistoryRepository {
     }
 }
 
+/** Build the queue from authoritative saved schedules, never from stale worker requests. */
+internal object ReminderQueueProjector {
+    fun project(
+        now: LocalDateTime,
+        tasks: List<TaskItem>, events: List<CalendarItem>,
+        habits: List<Habit>, routines: List<Routine>,
+        completions: List<HabitCompletion>, sessions: List<RoutineSession>
+    ): List<ReminderRecord> {
+        val today = now.toLocalDate()
+        val todayString = today.toString()
+        fun record(module: String, id: String, title: String, dateTime: LocalDateTime): ReminderRecord {
+            val timestamp = dateTime.atZone(ZoneId.systemDefault()).toInstant().toEpochMilli()
+            return ReminderRecord(module, id, title, if (dateTime.isBefore(now)) "MISSED" else "UPCOMING", timestamp)
+        }
+        val taskRecords = tasks.filter { it.reminderEnabled && !it.isArchived && !it.isCompleted }
+            .mapNotNull { task ->
+                val time = runCatching { LocalTime.parse(task.reminderTime) }.getOrNull() ?: return@mapNotNull null
+                val dateTime = if (TaskReminderSchedule.repeating(task)) {
+                    if (TaskReminderSchedule.isScheduledFor(task, today)) today.atTime(time)
+                    else TaskReminderSchedule.nextOccurrence(task, now)
+                } else runCatching { LocalDate.parse(task.dueDate).atTime(time) }.getOrNull()
+                dateTime?.let { record("Tasks", task.id, task.title, it) }
+            }
+        val eventRecords = events.filter { it.type == ActivityType.EVENT && !it.isCompleted && it.reminder.isNotBlank() }
+            .mapNotNull { event ->
+                val time = if (event.isAllDay) LocalTime.MIDNIGHT
+                    else CalendarEventNotificationScheduler.parseTime(event.startTime) ?: return@mapNotNull null
+                val lead = CalendarEventNotificationScheduler.parseLeadMinutes(event.reminder) ?: 0L
+                val candidate = (0L..30L).asSequence().map { today.plusDays(it) }
+                    .firstOrNull { ProductivityEngine.calendarOccurs(event, it) }
+                    ?: return@mapNotNull null
+                record("Calendar", event.id, event.title, candidate.atTime(time).minusMinutes(lead))
+            }
+        val habitRecords = habits.filter { !it.isPaused && !it.isArchived }
+            .flatMap { habit -> habit.reminders.filter { it.enabled }.mapNotNull { reminder ->
+                val time = runCatching { LocalTime.parse(reminder.time) }.getOrNull() ?: return@mapNotNull null
+                val date = (0L..14L).asSequence().map { today.plusDays(it) }
+                    .firstOrNull { day ->
+                        HabitRoutineRepository.isHabitScheduled(habit, day) &&
+                        (reminder.weekdays.isEmpty() || day.dayOfWeek.value in reminder.weekdays) &&
+                        !(day == today && completions.any { it.habitId == habit.id && it.date == todayString && it.status == "completed" })
+                    } ?: return@mapNotNull null
+                record("Habits", habit.id, habit.name, date.atTime(time))
+            } }
+        val routineRecords = routines.filter { !it.isPaused && !it.isArchived && it.reminderEnabled }
+            .mapNotNull { routine ->
+                val time = runCatching { LocalTime.parse(routine.reminderTime) }.getOrNull() ?: return@mapNotNull null
+                val date = (0L..14L).asSequence().map { today.plusDays(it) }
+                    .firstOrNull { day ->
+                        HabitRoutineRepository.isRoutineScheduled(routine, day) &&
+                        !(day == today && sessions.any { it.routineId == routine.id && it.date == todayString && it.isCompleted })
+                    } ?: return@mapNotNull null
+                record("Routines", routine.id, routine.name, date.atTime(time))
+            }
+        return (taskRecords + eventRecords + habitRecords + routineRecords).sortedBy { it.timestampMs }
+    }
+}
+
 data class PlannerEntry(
     val kind: String,
     val title: String,
@@ -102,7 +161,7 @@ internal object ProductivityEngine {
         day: LocalDate, tasks: List<TaskItem>, events: List<CalendarItem>,
         habits: List<Habit>, completions: List<HabitCompletion>,
         routines: List<Routine>, routineSessions: List<RoutineSession>,
-        studies: List<StudySessionRecord>
+        studies: List<StudySessionRecord>, studyTopics: List<Topic> = emptyList()
     ): List<PlannerEntry> {
         val dayString = day.toString()
         val taskEntries = tasks.filter { !it.isArchived && TaskReminderSchedule.isScheduledFor(it, day) }
@@ -119,9 +178,11 @@ internal object ProductivityEngine {
                 routineSessions.any { it.routineId == routine.id && it.date == dayString && it.isCompleted }) }
         val studyEntries = studies.filter { it.date == dayString }
             .map { PlannerEntry("Study", it.topicName.ifBlank { it.subjectName.ifBlank { "Focus session" } },
-                Instant.ofEpochMilli(it.startTimeMs).atZone(ZoneId.systemDefault()).toLocalTime().toString().take(5),
+                if (it.startTimeMs <= 0) "" else Instant.ofEpochMilli(it.startTimeMs).atZone(ZoneId.systemDefault()).toLocalTime().toString().take(5),
                 it.id, it.isCompleted) }
-        return (taskEntries + eventEntries + habitEntries + routineEntries + studyEntries)
+        val topicEntries = studyTopics.filter { it.dueDate == dayString || it.revisionScheduledDate == dayString }
+            .map { PlannerEntry("Study", it.title, "", it.id, it.status == TopicStatus.COMPLETED) }
+        return (taskEntries + eventEntries + habitEntries + routineEntries + studyEntries + topicEntries)
             .sortedWith(compareBy<PlannerEntry> { LocalTime.parse(it.time.take(5).ifBlank { "23:59" }.let { t ->
                 if (Regex("\\d{2}:\\d{2}").matches(t)) t else "23:59"
             }) }.thenBy { it.completed }.thenBy { it.title })

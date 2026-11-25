@@ -44,6 +44,7 @@ class LifeTrackNotificationReceiver : BroadcastReceiver() {
             drinkType = DrinkType.WATER,
             note = "Logged from notification"
         )
+        NotificationHistoryRepository.record(context, "Water", "daily_water", "Hydration reminder", "DONE")
 
         // 2. Fetch updated total and goal
         val todayStr = LocalDate.now().toString()

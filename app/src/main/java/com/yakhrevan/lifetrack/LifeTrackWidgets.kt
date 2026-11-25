@@ -45,8 +45,10 @@ object LifeTrackWidgetUpdater {
                     .filter { !it.isPaused && HabitRoutineRepository.isHabitScheduled(it, today) }
                 val completeIds = HabitRoutineRepository.getCompletionsForDate(context, today.toString())
                     .filter { it.status == "completed" }.mapTo(mutableSetOf()) { it.habitId }
-                views.setTextViewText(R.id.widget_title, "Habit Progress")
-                views.setTextViewText(R.id.widget_summary, "${habits.count { it.id in completeIds }} / ${habits.size} completed")
+                val bestStreak = habits.maxOfOrNull { HabitRoutineRepository.calculateHabitStreak(context, it.id, today).first } ?: 0
+                views.setTextViewText(R.id.widget_title, "Habit Streaks")
+                views.setTextViewText(R.id.widget_summary,
+                    "Best $bestStreak day streak · ${habits.count { it.id in completeIds }} / ${habits.size} today")
                 destination = "Habits"
             }
         }

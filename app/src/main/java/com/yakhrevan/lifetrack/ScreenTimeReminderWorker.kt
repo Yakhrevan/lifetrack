@@ -30,6 +30,7 @@ class ScreenTimeReminderWorker(context: Context, params: WorkerParameters) : Cor
 
         return try {
             NotificationManagerCompat.from(applicationContext).notify(4105, notification)
+            NotificationHistoryRepository.record(applicationContext, "Digital Wellbeing", "screen_break", "Time for a break", "DELIVERED")
             Result.success()
         } catch (_: SecurityException) {
             Result.success()
@@ -49,6 +50,7 @@ class FocusCompletionWorker(context: Context, params: WorkerParameters) : Corout
 
         return try {
             NotificationManagerCompat.from(applicationContext).notify(4106, notification)
+            NotificationHistoryRepository.record(applicationContext, "Study", "focus_complete", "Focus complete", "DELIVERED")
             Result.success()
         } catch (_: SecurityException) {
             Result.success()

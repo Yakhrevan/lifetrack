@@ -38,6 +38,7 @@ class StudyReminderWorker(context: Context, params: WorkerParameters) : Coroutin
             .build()
 
         manager.notify(reminderType.hashCode(), notification)
+        NotificationHistoryRepository.record(applicationContext, "Study", reminderType, title, "DELIVERED")
         return Result.success()
     }
 
