@@ -22,7 +22,7 @@ class DailyBackupWorker(
         if (!prefs.autoBackupEnabled) return Result.success()
 
         // Respect Wi-Fi only policy
-        if (prefs.networkPolicy == "Wi-Fi only" && !CloudSyncRepository.isWifiConnected(context)) {
+        if (OffDeviceBackupStore.isConfigured(context) && prefs.networkPolicy == "Wi-Fi only" && !CloudSyncRepository.isWifiConnected(context)) {
             return Result.retry()
         }
 
@@ -82,7 +82,9 @@ object BackupSyncScheduler {
             return
         }
 
-        val networkType = if (prefs.networkPolicy == "Wi-Fi only") {
+        val networkType = if (!OffDeviceBackupStore.isConfigured(context)) {
+            NetworkType.NOT_REQUIRED
+        } else if (prefs.networkPolicy == "Wi-Fi only") {
             NetworkType.UNMETERED
         } else {
             NetworkType.CONNECTED
@@ -93,7 +95,8 @@ object BackupSyncScheduler {
             .setRequiresBatteryNotLow(true)
             .build()
 
-        val dailyWork = PeriodicWorkRequestBuilder<DailyBackupWorker>(24, TimeUnit.HOURS)
+        val periodHours = if (prefs.backupFrequency == "Weekly") 7L * 24L else 24L
+        val dailyWork = PeriodicWorkRequestBuilder<DailyBackupWorker>(periodHours, TimeUnit.HOURS)
             .setConstraints(constraints)
             .addTag(DAILY_WORK_TAG)
             .setBackoffCriteria(BackoffPolicy.EXPONENTIAL, 15, TimeUnit.MINUTES)

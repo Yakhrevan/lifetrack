@@ -114,6 +114,8 @@ class HabitRoutineReminderWorker(
             .build()
 
         manager.notify(notificationId, notification)
+        NotificationHistoryRepository.record(applicationContext,
+            if (type == "habit") "Habits" else "Routines", itemId, title, "DELIVERED")
 
         return Result.success()
     }

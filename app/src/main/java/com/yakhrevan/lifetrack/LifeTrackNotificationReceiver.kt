@@ -128,6 +128,7 @@ class LifeTrackNotificationReceiver : BroadcastReceiver() {
             HabitRoutineRepository.isHabitScheduled(habit, LocalDate.parse(today)) &&
             HabitRoutineRepository.getCompletion(context, habitId, today)?.status != "completed"
         ) HabitRoutineRepository.markHabitComplete(context, habitId, today)
+        NotificationHistoryRepository.record(context, "Habits", habitId, habit?.name ?: "Habit", "DONE")
         NotificationManagerCompat.from(context).cancel(notifId)
 
         val name = habit?.name ?: "Habit"
@@ -144,6 +145,7 @@ class LifeTrackNotificationReceiver : BroadcastReceiver() {
             HabitRoutineRepository.getSessionsForDate(context, today)
                 .none { it.routineId == routineId && it.isCompleted }
         ) HabitRoutineRepository.setRoutineCompletion(context, routineId, today, true)
+        NotificationHistoryRepository.record(context, "Routines", routineId, routine?.name ?: "Routine", "DONE")
         NotificationManagerCompat.from(context).cancel(notificationId)
     }
 
@@ -156,6 +158,8 @@ class LifeTrackNotificationReceiver : BroadcastReceiver() {
         val reminderId = intent.getStringExtra(EXTRA_REMINDER_ID).orEmpty()
         val minutes = NotificationPolicy.snoozeMinutes(context)
         HabitRoutineNotificationScheduler.snoozeReminder(context, itemId, title, message, minutes, type, notifId, reminderId)
+        NotificationHistoryRepository.record(context, if (type == "habit") "Habits" else "Routines", itemId, title,
+            "SNOOZED", System.currentTimeMillis() + minutes * 60_000L)
         NotificationManagerCompat.from(context).cancel(notifId)
         Toast.makeText(context.applicationContext, "Reminder snoozed for $minutes minutes", Toast.LENGTH_SHORT).show()
     }
@@ -175,6 +179,9 @@ class LifeTrackNotificationReceiver : BroadcastReceiver() {
         val notifId = intent.getIntExtra(EXTRA_NOTIF_ID, ("calendar_event_" + eventId).hashCode())
         val minutes = NotificationPolicy.snoozeMinutes(context)
         CalendarEventNotificationScheduler.snooze(context, eventId, minutes)
+        NotificationHistoryRepository.record(context, "Calendar", eventId,
+            CalendarStorage.load(context).firstOrNull { it.id == eventId }?.title ?: "Event", "SNOOZED",
+            System.currentTimeMillis() + minutes * 60_000L)
         NotificationManagerCompat.from(context).cancel(notifId)
         Toast.makeText(context.applicationContext, "Event reminder snoozed for $minutes minutes", Toast.LENGTH_SHORT).show()
     }
@@ -187,6 +194,8 @@ class LifeTrackNotificationReceiver : BroadcastReceiver() {
         if (task != null && !TaskReminderSchedule.completedFor(task, LocalDate.now()) && !task.isArchived) {
             TaskRepository.toggleTaskCompletion(context, taskId)
         }
+        NotificationHistoryRepository.record(context, "Tasks", taskId, task?.title ?: "Task", "DONE")
+        LifeTrackWidgetUpdater.updateAll(context)
         NotificationManagerCompat.from(context).cancel(notifId)
 
         val title = task?.title ?: "Task"

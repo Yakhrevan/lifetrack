@@ -223,6 +223,7 @@ class CalendarEventReminderWorker(
                     .addAction(android.R.drawable.ic_lock_idle_alarm, "Snooze ${NotificationPolicy.snoozeMinutes(applicationContext)}m", snoozePending)
                     .build()
             )
+            NotificationHistoryRepository.record(applicationContext, "Calendar", item.id, item.title, "DELIVERED")
         }
 
         // Append the next recurrence behind this completed work instead of cancelling

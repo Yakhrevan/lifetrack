@@ -267,12 +267,19 @@ object CloudSyncRepository {
             val repository = LifeTrackRepository(context)
             val logs = repository.loadEntries()
             val backupJson = LifeTrackBackup.encode(context, logs)
+            LifeTrackBackup.decode(backupJson)
 
             // Save to app local snapshots directory
             val backupDir = File(context.filesDir, "backups").apply { if (!exists()) mkdirs() }
             val snapshotId = UUID.randomUUID().toString()
             val snapshotFile = File(backupDir, "lifetrack_backup_$snapshotId.json")
             snapshotFile.writeText(backupJson)
+            require(snapshotFile.readText() == backupJson) { "Local backup verification failed" }
+            // SAF supports a real off-device provider (including Google Drive) when
+            // the user explicitly selected a writable destination.
+            if (OffDeviceBackupStore.isConfigured(context)) {
+                OffDeviceBackupStore.writeVerified(context, backupJson, System.currentTimeMillis()).getOrThrow()
+            }
 
             val now = System.currentTimeMillis()
             val snapshot = BackupSnapshot(
@@ -351,9 +358,7 @@ object CloudSyncRepository {
             val backupData = LifeTrackBackup.decode(raw)
 
             // Restore entries and preferences
-            val repository = LifeTrackRepository(context)
-            repository.saveEntries(backupData.entries)
-            LifeTrackBackup.restorePreferences(context, backupData.preferences)
+            LifeTrackBackup.restoreSafely(context, backupData)
         }
     }
 

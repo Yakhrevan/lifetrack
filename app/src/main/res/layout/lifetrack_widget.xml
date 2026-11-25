@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/widget_root"
+    android:layout_width="match_parent" android:layout_height="match_parent"
+    android:orientation="vertical" android:gravity="center_vertical"
+    android:background="@drawable/lifetrack_widget_background"
+    android:padding="16dp">
+    <TextView android:id="@+id/widget_title"
+        android:layout_width="match_parent" android:layout_height="wrap_content"
+        android:text="LifeTrack" android:textStyle="bold" android:textSize="17sp"
+        android:textColor="#F8FAFC" android:maxLines="1" />
+    <TextView android:id="@+id/widget_summary"
+        android:layout_width="match_parent" android:layout_height="wrap_content"
+        android:text="Open LifeTrack" android:textSize="13sp"
+        android:textColor="#C6D3EA" android:layout_marginTop="6dp" android:maxLines="2" />
+</LinearLayout>

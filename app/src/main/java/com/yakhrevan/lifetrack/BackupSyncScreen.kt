@@ -72,6 +72,7 @@ fun BackupSyncScreen(
     var syncState by remember { mutableStateOf(CloudSyncRepository.determineSyncState(context)) }
     var storageBreakdown by remember { mutableStateOf(CloudSyncRepository.calculateStorageBreakdown(context)) }
     var lastSnapshot by remember { mutableStateOf(CloudSyncRepository.getSnapshots(context).firstOrNull()) }
+    var externalFolderConfigured by remember { mutableStateOf(OffDeviceBackupStore.isConfigured(context)) }
 
     fun refreshAll() {
         account = CloudSyncRepository.getAccount(context)
@@ -79,6 +80,15 @@ fun BackupSyncScreen(
         syncState = CloudSyncRepository.determineSyncState(context)
         storageBreakdown = CloudSyncRepository.calculateStorageBreakdown(context)
         lastSnapshot = CloudSyncRepository.getSnapshots(context).firstOrNull()
+        externalFolderConfigured = OffDeviceBackupStore.isConfigured(context)
+    }
+
+    val folderPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocumentTree()) { uri ->
+        if (uri != null) {
+            OffDeviceBackupStore.selectFolder(context, uri)
+                .onSuccess { refreshAll(); Toast.makeText(context, "Backup folder selected", Toast.LENGTH_LONG).show() }
+                .onFailure { Toast.makeText(context, "Folder access failed: ${it.message}", Toast.LENGTH_LONG).show() }
+        }
     }
 
     val accountPickerLauncher = rememberLauncherForActivityResult(
@@ -222,6 +232,8 @@ fun BackupSyncScreen(
                 Toast.makeText(context, "Signed out. Local notes, tasks, and data preserved.", Toast.LENGTH_SHORT).show()
             },
             onOpenManualBackup = { currentView = "ManualBackup" },
+            onSelectBackupFolder = { folderPicker.launch(null) },
+            externalFolderConfigured = externalFolderConfigured,
             onOpenRestore = { currentView = "RestoreData" },
             onOpenDetailedSettings = { currentView = "DetailedSettings" },
             onOpenStorageInfo = { currentView = "StorageInfo" },
@@ -448,6 +460,8 @@ fun SyncDashboardScreen(
     onSwitchAccount: () -> Unit,
     onSignOut: () -> Unit,
     onOpenManualBackup: () -> Unit,
+    onSelectBackupFolder: () -> Unit,
+    externalFolderConfigured: Boolean,
     onOpenRestore: () -> Unit,
     onOpenDetailedSettings: () -> Unit,
     onOpenStorageInfo: () -> Unit,
@@ -746,6 +760,15 @@ fun SyncDashboardScreen(
 
                             Divider(color = CardBorder, thickness = 0.5.dp)
 
+                            DashboardConfigRow(
+                                title = "Off-device backup folder",
+                                value = if (externalFolderConfigured) "Selected · verify in Drive/Files" else "Not selected · local only",
+                                icon = Icons.Default.FolderOpen,
+                                onClick = onSelectBackupFolder
+                            )
+
+                            Divider(color = CardBorder, thickness = 0.5.dp)
+
                             // Backup Frequency Row
                             DashboardConfigRow(
                                 title = "Backup Frequency",
@@ -772,7 +795,7 @@ fun SyncDashboardScreen(
                             ) {
                                 Column(modifier = Modifier.weight(1f)) {
                                     Text("Sync Across Devices", color = TextWhite, fontSize = 14.sp, fontWeight = FontWeight.Bold)
-                                    Text("Keep your data updated on all your devices", color = TextMuted, fontSize = 11.sp)
+                                    Text("Local backups do not automatically merge devices. Select a Drive/Files folder for off-device copies.", color = TextMuted, fontSize = 11.sp)
                                 }
                                 Switch(
                                     checked = preferences.syncAcrossDevices,

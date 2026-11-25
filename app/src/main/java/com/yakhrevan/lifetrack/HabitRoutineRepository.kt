@@ -293,6 +293,7 @@ object HabitRoutineRepository {
             timestampMs = System.currentTimeMillis()
         )
         saveCompletion(context, completion)
+        LifeTrackWidgetUpdater.updateAll(context)
     }
 
     fun markHabitSkipped(context: Context, habitId: String, date: String) {

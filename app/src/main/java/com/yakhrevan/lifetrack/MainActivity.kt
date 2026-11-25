@@ -173,6 +173,7 @@ class MainActivity:ComponentActivity(){
     // Keep reminder work durable and rebuild all categories from saved repositories.
     LaunchedEffect(context) {
         ReminderReconciliationScheduler.ensureScheduled(context)
+        LifeTrackWidgetUpdater.updateAll(context)
     }
 
     // Release cleanup: remove previously seeded synthetic records once and never seed samples again.
@@ -310,7 +311,9 @@ class MainActivity:ComponentActivity(){
         val city = profilePrefs.getString("weather_city", "Coimbatore") ?: "Coimbatore"
         val savedLat = profilePrefs.getString("weather_lat", null)?.toDoubleOrNull()
         val savedLon = profilePrefs.getString("weather_lon", null)?.toDoubleOrNull()
-        kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+        val lastWeatherCheck = profilePrefs.getLong("weather_city_checked_at", 0L)
+        // Avoid expensive network refreshes on every resume/navigation; 30-min cache.
+        if (System.currentTimeMillis() - lastWeatherCheck >= 30L * 60L * 1000L) kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
             runCatching {
                 if (savedLat != null && savedLon != null &&
                     ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_COARSE_LOCATION) == PackageManager.PERMISSION_GRANTED) {
@@ -345,6 +348,7 @@ class MainActivity:ComponentActivity(){
     var requestedTaskId by remember { mutableStateOf<String?>(null) }
     var requestedEventId by remember { mutableStateOf<String?>(null) }
     var quickCreateTaskToken by remember { mutableIntStateOf(0) }
+    var quickReminderToken by remember { mutableIntStateOf(0) }
     var quickCreateEventToken by remember { mutableIntStateOf(0) }
     LaunchedEffect(page) {
         if (page != "Tasks") {
@@ -854,7 +858,14 @@ class MainActivity:ComponentActivity(){
                     page = profileReturnPage
                 }
             )
-            "Home" -> HomeScreen(
+            "Home" -> Column(Modifier.fillMaxSize().padding(padding)) {
+                Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(horizontal = 14.dp, vertical = 5.dp),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    AssistChip(onClick = { navigateTo("Today Planner") }, label = { Text("Today") }, leadingIcon = { Icon(Icons.Default.Today, null) })
+                    AssistChip(onClick = { navigateTo("Notification Center") }, label = { Text("Reminders") }, leadingIcon = { Icon(Icons.Default.Notifications, null) })
+                    AssistChip(onClick = { navigateTo("Productivity Insights") }, label = { Text("Weekly") }, leadingIcon = { Icon(Icons.Default.QueryStats, null) })
+                }
+                HomeScreen(
                 logs = logs,
                 studyGoal = studyGoal,
                 waterGoal = waterGoal,
@@ -881,13 +892,39 @@ class MainActivity:ComponentActivity(){
                         else -> { cat = selected; entryDate = today; add = true }
                     }
                 },
-                modifier = Modifier.fillMaxSize().padding(padding)
+                modifier = Modifier.weight(1f).fillMaxWidth()
+            )
+            }
+            "Today Planner" -> TodayPlannerScreen(
+                modifier = Modifier.fillMaxSize().padding(padding),
+                onBack = navigateBack,
+                onOpen = { kind, itemId ->
+                    if (kind == "Tasks") requestedTaskId = itemId
+                    if (kind == "Calendar") requestedEventId = itemId
+                    navigateTo(kind)
+                },
+                onQuickAdd = { showQuickAdd = true }
+            )
+            "Notification Center" -> NotificationInboxScreen(
+                modifier = Modifier.fillMaxSize().padding(padding),
+                onBack = navigateBack,
+                onOpen = { kind, itemId ->
+                    if (kind == "Tasks") requestedTaskId = itemId
+                    if (kind == "Calendar") requestedEventId = itemId
+                    navigateTo(kind)
+                }
+            )
+            "Productivity Insights" -> ProductivityInsightsScreen(
+                modifier = Modifier.fillMaxSize().padding(padding),
+                onBack = navigateBack,
+                onOpenPlanner = { navigateTo("Today Planner") }
             )
             "Tasks" -> TasksScreen(
                 modifier = Modifier.fillMaxSize().padding(padding),
                 onNavigateBack = navigateBack,
                 openTaskId = requestedTaskId,
-                quickCreateToken = quickCreateTaskToken
+                quickCreateToken = quickCreateTaskToken,
+                quickReminderToken = quickReminderToken
             )
             "Notes" -> NotesScreen(
                 modifier = Modifier.fillMaxSize().padding(padding),
@@ -1256,7 +1293,16 @@ class MainActivity:ComponentActivity(){
                         requestedTaskId = null
                         navigateTo("Tasks")
                     }
-                    "Water" -> navigateTo("Water")
+                    "Reminder" -> {
+                        quickReminderToken++
+                        navigateTo("Tasks")
+                    }
+                    "Water" -> {
+                        WaterRepository.addEntry(context, 250, DrinkType.WATER, "Quick add")
+                        appRefreshToken++
+                        LifeTrackWidgetUpdater.updateAll(context)
+                        android.widget.Toast.makeText(context, "+250 ml water logged", android.widget.Toast.LENGTH_SHORT).show()
+                    }
                     "Study", "Focus" -> navigateTo("Study")
                     "Calendar" -> {
                         quickCreateEventToken++
@@ -1285,10 +1331,15 @@ class MainActivity:ComponentActivity(){
                 TextButton(onClick = {
                     val restored = pendingRestore ?: return@TextButton
                     val safeRestoredEntries = EntryCodec.newestFirst(EntryCodec.uniqueById(restored.entries))
-                    repository.saveEntries(safeRestoredEntries)
+                    val restoreResult = runCatching { LifeTrackBackup.restoreSafely(context, restored) }
+                    if (restoreResult.isFailure) {
+                        backupMessage = "Restore failed without losing previous data: ${restoreResult.exceptionOrNull()?.message}"
+                        pendingRestore = null
+                        return@TextButton
+                    }
                     logs = safeRestoredEntries
                     if (restored.preferences != null) RoutineReminderScheduler.cancelAllCurrent(context)
-                    LifeTrackBackup.restorePreferences(context, restored.preferences)
+                    LifeTrackWidgetUpdater.updateAll(context)
                     if (restored.preferences != null) {
                         // Preferences alone do not recreate WorkManager jobs; reschedule enabled routines.
                         RoutineReminderScheduler.restoreEnabled(context)

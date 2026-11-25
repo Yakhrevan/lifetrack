@@ -61,6 +61,13 @@ object ReminderReconciliationScheduler {
             PeriodicWorkRequestBuilder<ReminderReconciliationWorker>(12, TimeUnit.HOURS).build()
         )
     }
+
+    fun requestNow(context: Context) {
+        WorkManager.getInstance(context).enqueueUniqueWork(
+            UNIQUE_RECONCILIATION_WORK, ExistingWorkPolicy.REPLACE,
+            OneTimeWorkRequestBuilder<ReminderReconciliationWorker>().build()
+        )
+    }
 }
 
 class ReminderReconciliationReceiver : BroadcastReceiver() {
@@ -76,7 +83,8 @@ class ReminderReconciliationReceiver : BroadcastReceiver() {
             Intent.ACTION_DATE_CHANGED,
             Intent.ACTION_TIME_CHANGED,
             Intent.ACTION_TIMEZONE_CHANGED,
-            Intent.ACTION_MY_PACKAGE_REPLACED
+            Intent.ACTION_MY_PACKAGE_REPLACED,
+            android.app.AlarmManager.ACTION_SCHEDULE_EXACT_ALARM_PERMISSION_STATE_CHANGED
         )
     }
 }

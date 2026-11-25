@@ -632,6 +632,63 @@ fun NotificationSettingsScreen(
                 }
                 item {
                     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        SettingsSwitchRow(
+                            title = "Precise task reminders",
+                            subtitle = "Use exact Android alarms when permitted; otherwise keep WorkManager fallback",
+                            checked = settings.preciseTaskAlarms,
+                            onCheckedChange = { enabled ->
+                                onUpdate(settings.copy(preciseTaskAlarms = enabled))
+                                if (enabled && !PreciseTaskAlarmScheduler.isAvailable(context)) {
+                                    runCatching {
+                                        context.startActivity(android.content.Intent(
+                                            android.provider.Settings.ACTION_REQUEST_SCHEDULE_EXACT_ALARM,
+                                            android.net.Uri.parse("package:${context.packageName}")
+                                        ))
+                                    }
+                                }
+                                ReminderReconciliationScheduler.ensureScheduled(context)
+                            }
+                        )
+                        Text(if (PreciseTaskAlarmScheduler.isAvailable(context)) "Android exact-alarm access available"
+                            else "Grant Alarms & reminders special access for minute-accurate task alerts",
+                            color = TextMuted, fontSize = 11.sp)
+                    }
+                }
+                item {
+                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        SettingsSwitchRow(
+                            title = "Smart follow-ups",
+                            subtitle = "Bounded repeat alerts for incomplete priority tasks",
+                            checked = settings.taskFollowUpEnabled,
+                            onCheckedChange = { onUpdate(settings.copy(taskFollowUpEnabled = it)) }
+                        )
+                        if (settings.taskFollowUpEnabled) Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            listOf(15, 30, 60).forEach { minutes ->
+                                FilterChip(selected = settings.taskFollowUpMinutes == minutes,
+                                    onClick = { onUpdate(settings.copy(taskFollowUpMinutes = minutes)) },
+                                    label = { Text("${minutes}m") })
+                            }
+                        }
+                        if (settings.taskFollowUpEnabled) {
+                            SettingsSwitchRow(
+                                title = "High-priority only",
+                                subtitle = "Use follow-ups only for tasks marked High",
+                                checked = settings.taskFollowUpHighPriorityOnly,
+                                onCheckedChange = { onUpdate(settings.copy(taskFollowUpHighPriorityOnly = it)) }
+                            )
+                            Text("Maximum follow-ups", color = TextWhite, fontWeight = FontWeight.SemiBold)
+                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                listOf(1, 2, 3).forEach { count ->
+                                    FilterChip(selected = settings.taskFollowUpCount == count,
+                                        onClick = { onUpdate(settings.copy(taskFollowUpCount = count)) },
+                                        label = { Text("$count") })
+                                }
+                            }
+                        }
+                    }
+                }
+                item {
+                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                         Text("Notification sound", color = TextWhite, fontWeight = FontWeight.SemiBold)
                         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                             listOf("Chime", "System", "Silent").forEach { sound ->

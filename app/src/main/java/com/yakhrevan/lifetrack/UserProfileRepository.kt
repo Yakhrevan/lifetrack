@@ -41,6 +41,11 @@ data class AppSettings(
     val quietHoursEnabled: Boolean = true,
     val notificationSound: String = "Chime", // Chime, System, Silent
     val snoozeDurationMinutes: Int = 10,
+    val preciseTaskAlarms: Boolean = false,
+    val taskFollowUpEnabled: Boolean = false,
+    val taskFollowUpMinutes: Int = 30,
+    val taskFollowUpCount: Int = 1,
+    val taskFollowUpHighPriorityOnly: Boolean = true,
     val notifyHabits: Boolean = true,
     val notifyRoutines: Boolean = true,
     val notifyTasks: Boolean = true,
@@ -194,6 +199,11 @@ object UserProfileRepository {
             quietHoursEnabled = prefs.getBoolean("quiet_hours_enabled", true),
             notificationSound = prefs.getString("notification_sound", "Chime") ?: "Chime",
             snoozeDurationMinutes = prefs.getInt("snooze_duration_min", 10),
+            preciseTaskAlarms = prefs.getBoolean("precise_task_alarms", false),
+            taskFollowUpEnabled = prefs.getBoolean("task_follow_up_enabled", false),
+            taskFollowUpMinutes = prefs.getInt("task_follow_up_minutes", 30).coerceIn(5, 120),
+            taskFollowUpCount = prefs.getInt("task_follow_up_count", 1).coerceIn(1, 3),
+            taskFollowUpHighPriorityOnly = prefs.getBoolean("task_follow_up_high_only", true),
             notifyHabits = prefs.getBoolean("notify_habits", true),
             notifyRoutines = prefs.getBoolean("notify_routines", true),
             notifyTasks = prefs.getBoolean("notify_tasks", true),
@@ -223,6 +233,7 @@ object UserProfileRepository {
     }
 
     fun saveSettings(context: Context, settings: AppSettings) {
+        val previousPrecise = getSettingsPrefs(context).getBoolean("precise_task_alarms", false)
         getSettingsPrefs(context).edit()
             .putString("theme_mode", settings.themeMode)
             .putString("accent_color_hex", settings.accentColorHex)
@@ -238,6 +249,11 @@ object UserProfileRepository {
             .putBoolean("quiet_hours_enabled", settings.quietHoursEnabled)
             .putString("notification_sound", settings.notificationSound)
             .putInt("snooze_duration_min", settings.snoozeDurationMinutes)
+            .putBoolean("precise_task_alarms", settings.preciseTaskAlarms)
+            .putBoolean("task_follow_up_enabled", settings.taskFollowUpEnabled)
+            .putInt("task_follow_up_minutes", settings.taskFollowUpMinutes.coerceIn(5, 120))
+            .putInt("task_follow_up_count", settings.taskFollowUpCount.coerceIn(1, 3))
+            .putBoolean("task_follow_up_high_only", settings.taskFollowUpHighPriorityOnly)
             .putBoolean("notify_habits", settings.notifyHabits)
             .putBoolean("notify_routines", settings.notifyRoutines)
             .putBoolean("notify_tasks", settings.notifyTasks)
@@ -271,5 +287,9 @@ object UserProfileRepository {
             else -> true
         }
         getProfilePrefs(context).edit().putBoolean("dark_theme", isDark).apply()
+        if (previousPrecise != settings.preciseTaskAlarms) {
+            TaskRepository.getTasks(context, includeArchived = true)
+                .forEach { TaskNotificationScheduler.reconcileTaskReminder(context, it) }
+        }
     }
 }

@@ -95,6 +95,7 @@ object TaskRepository {
         }
         prefs(context).edit().putString(KEY_TASKS, encodeTasks(current)).apply()
         TaskNotificationScheduler.reconcileTaskReminder(context, task)
+        LifeTrackWidgetUpdater.updateAll(context)
     }
 
     fun toggleTaskCompletion(context: Context, id: String): Boolean {

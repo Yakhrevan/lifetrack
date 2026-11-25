@@ -27,7 +27,10 @@ class TaskReminderWorker(
     params: WorkerParameters
 ) : CoroutineWorker(context, params) {
 
-    override suspend fun doWork(): Result {
+    override suspend fun doWork(): Result = deliver(applicationContext, inputData)
+
+    companion object {
+      internal fun deliver(applicationContext: Context, inputData: Data): Result {
         val taskId = inputData.getString(KEY_TASK_ID) ?: return Result.failure()
         val expectedDate = inputData.getString(KEY_EXPECTED_DATE)
         val expectedTime = inputData.getString(KEY_EXPECTED_TIME)
@@ -94,11 +97,18 @@ class TaskReminderWorker(
             .build()
 
         manager.notify(taskId.hashCode(), notification)
+        NotificationHistoryRepository.record(applicationContext, "Tasks", taskId, currentTask.title, "DELIVERED")
+
+        val followUpStage = inputData.getInt(KEY_FOLLOW_UP_STAGE, 0)
+        if (followUpStage > 0) {
+            TaskNotificationScheduler.scheduleFollowUp(applicationContext, currentTask, followUpStage + 1, occurrenceDate)
+        } else if (!isSnooze) {
+            TaskNotificationScheduler.scheduleFollowUp(applicationContext, currentTask, 1, occurrenceDate)
+        }
 
         return Result.success()
     }
 
-    companion object {
         const val KEY_TASK_ID = "task_id"
         const val KEY_TITLE = "title"
         const val KEY_MESSAGE = "message"
@@ -106,6 +116,7 @@ class TaskReminderWorker(
         const val KEY_EXPECTED_TIME = "expected_time"
         const val KEY_OCCURRENCE_DATE = "occurrence_date"
         const val KEY_IS_SNOOZE = "is_snooze"
+        const val KEY_FOLLOW_UP_STAGE = "follow_up_stage"
     }
 }
 
@@ -117,6 +128,8 @@ object TaskNotificationScheduler {
 
     fun reconcileTaskReminder(context: Context, task: TaskItem) {
         WorkManager.getInstance(context).cancelUniqueWork("task_reminder_${task.id}")
+        PreciseTaskAlarmScheduler.cancel(context, task.id)
+        WorkManager.getInstance(context).cancelUniqueWork("task_follow_up_${task.id}")
         if (task.isArchived || !task.reminderEnabled || (!TaskReminderSchedule.repeating(task) && task.isCompleted)) {
             WorkManager.getInstance(context).cancelUniqueWork("snooze_task_${task.id}")
         }
@@ -155,6 +168,7 @@ object TaskNotificationScheduler {
             .putString(TaskReminderWorker.KEY_OCCURRENCE_DATE, scheduledDateTime.toLocalDate().toString())
             .build()
 
+        if (PreciseTaskAlarmScheduler.schedule(context, task.id, scheduledDateTime, data)) return
         val request = OneTimeWorkRequestBuilder<TaskReminderWorker>()
             .setInitialDelay(delayMillis, TimeUnit.MILLISECONDS)
             .setInputData(data)
@@ -170,6 +184,27 @@ object TaskNotificationScheduler {
     fun cancelTaskReminder(context: Context, task: TaskItem) {
         WorkManager.getInstance(context).cancelUniqueWork("task_reminder_${task.id}")
         WorkManager.getInstance(context).cancelUniqueWork("snooze_task_${task.id}")
+        WorkManager.getInstance(context).cancelUniqueWork("task_follow_up_${task.id}")
+        PreciseTaskAlarmScheduler.cancel(context, task.id)
+    }
+
+    /** Bounded optional escalation: at most three follow-ups for a live task. */
+    fun scheduleFollowUp(context: Context, task: TaskItem, stage: Int, occurrence: LocalDate) {
+        val settings = UserProfileRepository.getSettings(context)
+        if (!ReminderFollowUpPolicy.shouldSchedule(settings, task, stage)) return
+        val data = Data.Builder()
+            .putString(TaskReminderWorker.KEY_TASK_ID, task.id)
+            .putString(TaskReminderWorker.KEY_EXPECTED_DATE, task.dueDate)
+            .putString(TaskReminderWorker.KEY_EXPECTED_TIME, task.reminderTime)
+            .putString(TaskReminderWorker.KEY_OCCURRENCE_DATE, occurrence.toString())
+            .putBoolean(TaskReminderWorker.KEY_IS_SNOOZE, true)
+            .putInt(TaskReminderWorker.KEY_FOLLOW_UP_STAGE, stage)
+            .build()
+        WorkManager.getInstance(context).enqueueUniqueWork("task_follow_up_${task.id}",
+            if (stage == 1) ExistingWorkPolicy.REPLACE else ExistingWorkPolicy.APPEND_OR_REPLACE,
+            OneTimeWorkRequestBuilder<TaskReminderWorker>()
+                .setInitialDelay(ReminderFollowUpPolicy.delayMinutes(settings.taskFollowUpMinutes, stage), TimeUnit.MINUTES)
+                .setInputData(data).build())
     }
 
     fun snoozeTask(context: Context, taskId: String, title: String, minutes: Int) {
@@ -196,7 +231,21 @@ object TaskNotificationScheduler {
             ExistingWorkPolicy.REPLACE,
             request
         )
+        NotificationHistoryRepository.record(context, "Tasks", taskId, task.title, "SNOOZED",
+            System.currentTimeMillis() + minutes.coerceAtLeast(1) * 60_000L)
     }
+}
+
+/** Pure, explicit and capped escalation; never schedules when notifications are disabled. */
+internal object ReminderFollowUpPolicy {
+    fun shouldSchedule(settings: AppSettings, task: TaskItem, stage: Int): Boolean =
+        settings.notificationsEnabled && settings.notifyTasks && settings.taskFollowUpEnabled &&
+        stage in 1..settings.taskFollowUpCount.coerceIn(1, 3) && !task.isArchived &&
+        task.reminderEnabled && !task.isCompleted &&
+        (!settings.taskFollowUpHighPriorityOnly || task.priority == "High")
+
+    fun delayMinutes(base: Int, stage: Int): Long =
+        base.coerceIn(5, 120).toLong() * stage.coerceIn(1, 3)
 }
 
 /** Pure recurrence functions, kept testable without Android or WorkManager. */

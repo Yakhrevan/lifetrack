@@ -58,7 +58,8 @@ fun TasksScreen(
     modifier: Modifier = Modifier,
     onNavigateBack: () -> Unit = {},
     openTaskId: String? = null,
-    quickCreateToken: Int = 0
+    quickCreateToken: Int = 0,
+    quickReminderToken: Int = 0
 ) {
     val context = LocalContext.current
     var refreshTrigger by remember { mutableIntStateOf(0) }
@@ -76,6 +77,13 @@ fun TasksScreen(
         if (quickCreateToken > 0) currentView = "create"
     }
     var taskToEdit by remember { mutableStateOf<TaskItem?>(null) }
+    LaunchedEffect(quickReminderToken) {
+        if (quickReminderToken > 0) {
+            val settings = UserProfileRepository.getSettings(context)
+            taskToEdit = TaskItem(title = "", reminderEnabled = true, reminderTime = settings.defaultReminderTime)
+            currentView = "create"
+        }
+    }
 
     val tasks = remember(refreshTrigger) {
         TaskRepository.getTasks(context, includeArchived = false)
@@ -105,6 +113,7 @@ fun TasksScreen(
                 initialTask = taskToEdit,
                 onSave = { task ->
                     TaskRepository.saveTask(context, task)
+                    LifeTrackWidgetUpdater.updateAll(context)
                     refreshTrigger++
                     currentView = "list"
                 },

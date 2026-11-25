@@ -261,6 +261,8 @@ object WaterRepository {
             saveSettings(context, settings.copy(snoozeUntilMs = 0L))
         }
 
+        LifeTrackWidgetUpdater.updateAll(context)
+
         return entry
     }
 

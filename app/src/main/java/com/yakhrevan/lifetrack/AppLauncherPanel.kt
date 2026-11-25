@@ -71,6 +71,9 @@ fun AppLauncherPanel(
             // Row 5
             LauncherItem("Backup",      Icons.Default.CloudSync,            Color(0xFF06B6D4), "Backup & Sync"),
             LauncherItem("Settings",    Icons.Default.Settings,             Color(0xFF64748B), "Settings")
+            ,LauncherItem("Today",      Icons.Default.Today,                Color(0xFF0EA5E9), "Today Planner")
+            ,LauncherItem("Alerts",     Icons.Default.Notifications,        Color(0xFFF59E0B), "Notification Center")
+            ,LauncherItem("Weekly",     Icons.Default.QueryStats,           Color(0xFF10B981), "Productivity Insights")
         )
     }
 

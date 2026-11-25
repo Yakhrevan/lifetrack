@@ -24,6 +24,12 @@ internal object LifeTrackBackup {
         "lifetrack_habits_routines_v2",
         "lifetrack_studio",
         "lifetrack_study",
+        "lifetrack_study_v2",
+        "lifetrack_calendar",
+        "lifetrack_water_v2",
+        "lifetrack_screen_time_prefs",
+        "lifetrack_voice_bot_history",
+        "lifetrack_notification_history_v1",
         "lifetrack_money",
         "lifetrack_webling",
         "lifetrack_tasks_v2",
@@ -66,6 +72,24 @@ internal object LifeTrackBackup {
         validatePreferences(preferences)
         val entries = EntryCodec.decode(entriesJson.toString()).entries
         return LifeTrackBackupData(entries, preferences)
+    }
+
+    /** Validate first, then apply with a rollback snapshot if a write throws. */
+    fun restoreSafely(context: Context, backup: LifeTrackBackupData) {
+        val repository = LifeTrackRepository(context)
+        val rollback = decode(encode(context, repository.loadEntries()))
+        try {
+            repository.saveEntries(EntryCodec.newestFirst(EntryCodec.uniqueById(backup.entries)))
+            restorePreferences(context, backup.preferences)
+            ReminderReconciliationScheduler.requestNow(context)
+        } catch (failure: Exception) {
+            runCatching {
+                repository.saveEntries(rollback.entries)
+                restorePreferences(context, rollback.preferences)
+                ReminderReconciliationScheduler.requestNow(context)
+            }.onFailure { failure.addSuppressed(it) }
+            throw failure
+        }
     }
 
     /** Reject malformed preference payloads before the restore flow mutates local data. */

@@ -21,6 +21,8 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
@@ -53,6 +55,14 @@ object QuickAddActionRegistry {
             icon = Icons.Default.CheckCircle,
             color = Color(0xFF8B5CF6),
             categoryOrRoute = "Tasks"
+        ),
+        QuickAddAction(
+            id = "reminder",
+            title = "Reminder",
+            subtitle = "Schedule alert",
+            icon = Icons.Default.Alarm,
+            color = Color(0xFF0EA5E9),
+            categoryOrRoute = "Reminder"
         ),
         QuickAddAction(
             id = "note",
@@ -200,6 +210,7 @@ fun QuickAddMenu(
                             .scale(animProgress)
                             .alpha(animProgress.coerceIn(0f, 1f))
                             .graphicsLayer { rotationZ = itemRotation }
+                            .semantics { contentDescription = "Quick add ${action.title}" }
                             .clickable(
                                 interactionSource = remember { MutableInteractionSource() },
                                 indication = null
