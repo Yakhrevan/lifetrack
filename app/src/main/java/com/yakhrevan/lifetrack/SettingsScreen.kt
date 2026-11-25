@@ -654,7 +654,11 @@ fun NotificationSettingsScreen(
                                 .setContentTitle("LifeTrack notification test")
                                 .setContentText("Your reminder sound and logo are ready")
                                 .build()
-                            NotificationManagerCompat.from(context).notify(90011, test)
+                            try {
+                                NotificationManagerCompat.from(context).notify(90011, test)
+                            } catch (_: SecurityException) {
+                                Toast.makeText(context, "Android blocked notification permission", Toast.LENGTH_LONG).show()
+                            }
                         }
                     }) {
                         Icon(Icons.Default.NotificationsActive, contentDescription = null)
