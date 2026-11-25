@@ -19,6 +19,7 @@ import java.util.concurrent.TimeUnit
 
 class RoutineReminderWorker(context: Context, params: WorkerParameters) : CoroutineWorker(context, params) {
     override suspend fun doWork(): Result {
+        if (!NotificationPolicy.canNotify(applicationContext, NotificationPolicy.Module.ROUTINES)) return Result.success()
         val name = inputData.getString(KEY_NAME)?.takeIf { it.isNotBlank() } ?: return Result.failure()
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
             ContextCompat.checkSelfPermission(applicationContext, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
@@ -26,13 +27,8 @@ class RoutineReminderWorker(context: Context, params: WorkerParameters) : Corout
             // Notifications are optional. Avoid a SecurityException when permission is denied.
             return Result.success()
         }
-        val channelId = "lifetrack_routine_reminders"
         val manager = applicationContext.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            manager.createNotificationChannel(NotificationChannel(channelId, "Routine reminders", NotificationManager.IMPORTANCE_DEFAULT).apply { description = "Scheduled habit and personal-care reminders" })
-        }
-        val notification = NotificationCompat.Builder(applicationContext, channelId)
-            .setSmallIcon(android.R.drawable.ic_popup_reminder)
+        val notification = NotificationPolicy.builder(applicationContext, NotificationPolicy.Module.ROUTINES, "Routine reminders")
             .setContentTitle("LifeTrack routine")
             .setContentText("Time for: $name")
             .setStyle(NotificationCompat.BigTextStyle().bigText("Your scheduled routine is ready: $name"))

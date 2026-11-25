@@ -10,13 +10,9 @@ import androidx.work.WorkerParameters
 
 class HabitReminderWorker(context: Context, params: WorkerParameters) : Worker(context, params) {
     override fun doWork(): Result {
+        if (!NotificationPolicy.canNotify(applicationContext, NotificationPolicy.Module.HABITS)) return Result.success()
         val manager = applicationContext.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
-        val channelId = "lifetrack_habit_reminders"
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            manager.createNotificationChannel(NotificationChannel(channelId, "Habit reminders", NotificationManager.IMPORTANCE_DEFAULT))
-        }
-        val notification = NotificationCompat.Builder(applicationContext, channelId)
-            .setSmallIcon(android.R.drawable.ic_dialog_info)
+        val notification = NotificationPolicy.builder(applicationContext, NotificationPolicy.Module.HABITS, "Habit reminders")
             .setContentTitle("LifeTrack habit reminder")
             .setContentText("Take a moment to check in with your routine.")
             .setPriority(NotificationCompat.PRIORITY_DEFAULT)

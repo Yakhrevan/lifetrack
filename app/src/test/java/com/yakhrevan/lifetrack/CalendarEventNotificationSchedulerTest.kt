@@ -68,4 +68,24 @@ class CalendarEventNotificationSchedulerTest {
         )
         assertNull(next)
     }
+
+    @Test
+    fun afterDeliveryDoesNotEnqueueSameEventRepeatedlyDuringLeadWindow() {
+        val after = LocalDateTime.parse("2026-01-31T09:20:01")
+        // Its 09:20 reminder fired, but the event itself does not start until 09:30.
+        val next = CalendarEventNotificationScheduler.nextReminderOccurrence(
+            event(RepeatOption.DAILY), LocalDate.parse("2026-01-31"),
+            LocalTime.of(9, 30), after, 10, true
+        )
+        assertEquals(LocalDateTime.parse("2026-02-01T09:30:00"), next)
+    }
+
+    @Test
+    fun oneOffEventDoesNotLoopAfterItsReminderFires() {
+        val next = CalendarEventNotificationScheduler.nextReminderOccurrence(
+            event(RepeatOption.NONE), LocalDate.parse("2026-01-31"),
+            LocalTime.of(9, 30), LocalDateTime.parse("2026-01-31T09:20:01"), 10, true
+        )
+        assertNull(next)
+    }
 }

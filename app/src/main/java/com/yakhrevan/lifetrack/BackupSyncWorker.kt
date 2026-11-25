@@ -116,20 +116,9 @@ object BackupSyncScheduler {
 }
 
 private fun showBackupNotification(context: Context, title: String, message: String) {
+    if (!NotificationPolicy.canNotify(context, NotificationPolicy.Module.SYSTEM)) return
     val nm = context.getSystemService(Context.NOTIFICATION_SERVICE) as? NotificationManager ?: return
-    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-        val channel = NotificationChannel(
-            "lifetrack_backup_channel",
-            "Backup & Sync",
-            NotificationManager.IMPORTANCE_DEFAULT
-        ).apply {
-            description = "Status alerts for LifeTrack backup and synchronization"
-        }
-        nm.createNotificationChannel(channel)
-    }
-
-    val notification = NotificationCompat.Builder(context, "lifetrack_backup_channel")
-        .setSmallIcon(android.R.drawable.stat_sys_upload_done)
+    val notification = NotificationPolicy.builder(context, NotificationPolicy.Module.SYSTEM, "Backup and sync")
         .setContentTitle(title)
         .setContentText(message)
         .setAutoCancel(true)

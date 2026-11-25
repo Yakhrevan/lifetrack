@@ -61,10 +61,13 @@ class LifeTrackNotificationReceiver : BroadcastReceiver() {
         val manager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
         val channelId = "lifetrack_water"
 
+        if (!NotificationPolicy.canNotify(context, NotificationPolicy.Module.WATER)) {
+            manager.cancel(notifId)
+            return
+        }
         if (todayTotal >= goalMl) {
             // Daily goal reached! Celebrate and dismiss or show completion badge
-            val goalReachedNotif = NotificationCompat.Builder(context, channelId)
-                .setSmallIcon(android.R.drawable.ic_dialog_info)
+            val goalReachedNotif = NotificationPolicy.builder(context, NotificationPolicy.Module.WATER, "Hydration reminders")
                 .setContentTitle("🎉 Daily Hydration Goal Reached!")
                 .setContentText("You reached ${todayTotal}ml today. Fantastic job staying hydrated!")
                 .setPriority(NotificationCompat.PRIORITY_LOW)
@@ -89,8 +92,7 @@ class LifeTrackNotificationReceiver : BroadcastReceiver() {
             val log250Pending = createWaterActionPendingIntent(context, 250, notifId, 5001)
             val log500Pending = createWaterActionPendingIntent(context, 500, notifId, 5002)
 
-            val updatedNotification = NotificationCompat.Builder(context, channelId)
-                .setSmallIcon(android.R.drawable.ic_dialog_info)
+            val updatedNotification = NotificationPolicy.builder(context, NotificationPolicy.Module.WATER, "Hydration reminders")
                 .setContentTitle("💧 Hydration Updated (+${amountMl}ml)")
                 .setContentText("Current: ${todayTotal}ml • ${remainingMl}ml remaining to goal")
                 .setStyle(NotificationCompat.BigTextStyle().bigText("Keep it up! Total logged today: ${todayTotal}ml. Remaining: ${remainingMl}ml."))
@@ -109,12 +111,11 @@ class LifeTrackNotificationReceiver : BroadcastReceiver() {
 
     private fun handleSnoozeWater(context: Context, intent: Intent) {
         val notifId = intent.getIntExtra(EXTRA_NOTIF_ID, 4102)
-        val snoozeMs = System.currentTimeMillis() + (30 * 60 * 1000L) // 30 minutes
-        val currentSettings = WaterRepository.loadSettings(context)
-        WaterRepository.saveSettings(context, currentSettings.copy(snoozeUntilMs = snoozeMs))
+        val minutes = NotificationPolicy.snoozeMinutes(context)
+        snoozeWaterReminder(context, minutes)
 
         NotificationManagerCompat.from(context).cancel(notifId)
-        Toast.makeText(context.applicationContext, "Hydration reminder snoozed for 30m", Toast.LENGTH_SHORT).show()
+        Toast.makeText(context.applicationContext, "Hydration reminder snoozed for ${minutes}m", Toast.LENGTH_SHORT).show()
     }
 
     private fun handleCompleteHabit(context: Context, intent: Intent) {
@@ -153,26 +154,29 @@ class LifeTrackNotificationReceiver : BroadcastReceiver() {
         val message = intent.getStringExtra(EXTRA_REMINDER_MESSAGE) ?: "Snoozed reminder"
         val notifId = intent.getIntExtra(EXTRA_NOTIF_ID, itemId.hashCode())
         val reminderId = intent.getStringExtra(EXTRA_REMINDER_ID).orEmpty()
-        HabitRoutineNotificationScheduler.snoozeReminder(context, itemId, title, message, 10, type, notifId, reminderId)
+        val minutes = NotificationPolicy.snoozeMinutes(context)
+        HabitRoutineNotificationScheduler.snoozeReminder(context, itemId, title, message, minutes, type, notifId, reminderId)
         NotificationManagerCompat.from(context).cancel(notifId)
-        Toast.makeText(context.applicationContext, "Reminder snoozed for 10 minutes", Toast.LENGTH_SHORT).show()
+        Toast.makeText(context.applicationContext, "Reminder snoozed for $minutes minutes", Toast.LENGTH_SHORT).show()
     }
 
     private fun handleSnoozeTask(context: Context, intent: Intent) {
         val taskId = intent.getStringExtra(EXTRA_TASK_ID) ?: return
         val title = intent.getStringExtra(EXTRA_REMINDER_TITLE) ?: "Task Reminder"
         val notifId = intent.getIntExtra(EXTRA_NOTIF_ID, taskId.hashCode())
-        TaskNotificationScheduler.snoozeTask(context, taskId, title, 10)
+        val minutes = NotificationPolicy.snoozeMinutes(context, TaskRepository.getTaskById(context, taskId))
+        TaskNotificationScheduler.snoozeTask(context, taskId, title, minutes)
         NotificationManagerCompat.from(context).cancel(notifId)
-        Toast.makeText(context.applicationContext, "Task reminder snoozed for 10 minutes", Toast.LENGTH_SHORT).show()
+        Toast.makeText(context.applicationContext, "Task reminder snoozed for $minutes minutes", Toast.LENGTH_SHORT).show()
     }
 
     private fun handleSnoozeCalendarEvent(context: Context, intent: Intent) {
         val eventId = intent.getStringExtra(EXTRA_CALENDAR_EVENT_ID) ?: return
         val notifId = intent.getIntExtra(EXTRA_NOTIF_ID, ("calendar_event_" + eventId).hashCode())
-        CalendarEventNotificationScheduler.snooze(context, eventId, 10)
+        val minutes = NotificationPolicy.snoozeMinutes(context)
+        CalendarEventNotificationScheduler.snooze(context, eventId, minutes)
         NotificationManagerCompat.from(context).cancel(notifId)
-        Toast.makeText(context.applicationContext, "Event reminder snoozed for 10 minutes", Toast.LENGTH_SHORT).show()
+        Toast.makeText(context.applicationContext, "Event reminder snoozed for $minutes minutes", Toast.LENGTH_SHORT).show()
     }
 
     private fun handleCompleteTask(context: Context, intent: Intent) {
@@ -180,7 +184,7 @@ class LifeTrackNotificationReceiver : BroadcastReceiver() {
         val notifId = intent.getIntExtra(EXTRA_NOTIF_ID, taskId.hashCode())
 
         val task = TaskRepository.getTaskById(context, taskId)
-        if (task != null && !task.isCompleted && !task.isArchived) {
+        if (task != null && !TaskReminderSchedule.completedFor(task, LocalDate.now()) && !task.isArchived) {
             TaskRepository.toggleTaskCompletion(context, taskId)
         }
         NotificationManagerCompat.from(context).cancel(notifId)

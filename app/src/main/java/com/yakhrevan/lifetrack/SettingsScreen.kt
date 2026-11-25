@@ -1,7 +1,10 @@
 package com.yakhrevan.lifetrack
 
 import android.content.Context
+import android.app.NotificationManager
+import android.app.TimePickerDialog
 import android.widget.Toast
+import androidx.core.app.NotificationManagerCompat
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -562,6 +565,7 @@ fun NotificationSettingsScreen(
     onUpdate: (AppSettings) -> Unit,
     onBack: () -> Unit
 ) {
+    val context = LocalContext.current
     Column(
         modifier = Modifier
             .fillMaxSize()
@@ -588,74 +592,73 @@ fun NotificationSettingsScreen(
                     )
                 }
 
-                // Default Reminder Time
                 item {
-                    Surface(
-                        color = CardBackground,
-                        shape = RoundedCornerShape(14.dp),
-                        border = BorderStroke(1.dp, CardBorder),
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
-                        Row(
-                            modifier = Modifier.padding(14.dp),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Column {
-                                Text("Default Reminder Time", color = TextWhite, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
-                                Text("Standard time for daily prompts", color = TextMuted, fontSize = 11.sp)
+                    ReminderTimePreferenceRow("Default Reminder Time", "Used when creating new reminders", settings.defaultReminderTime) {
+                        onUpdate(settings.copy(defaultReminderTime = it))
+                    }
+                }
+                item {
+                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        SettingsSwitchRow(
+                            title = "Quiet Hours",
+                            subtitle = "Keep notifications visible, but silent during this time",
+                            checked = settings.quietHoursEnabled,
+                            onCheckedChange = { onUpdate(settings.copy(quietHoursEnabled = it)) }
+                        )
+                        if (settings.quietHoursEnabled) {
+                            ReminderTimePreferenceRow("Quiet hours start", "Sound turns off", settings.quietHoursStart) {
+                                onUpdate(settings.copy(quietHoursStart = it))
                             }
-                            Text(
-                                "8:00 PM",
-                                color = CyanBrand,
-                                fontSize = 13.sp,
-                                fontWeight = FontWeight.Bold
-                            )
+                            ReminderTimePreferenceRow("Quiet hours end", "Sound returns", settings.quietHoursEnd) {
+                                onUpdate(settings.copy(quietHoursEnd = it))
+                            }
                         }
                     }
                 }
-
-                // Quiet Hours
                 item {
-                    Surface(
-                        color = CardBackground,
-                        shape = RoundedCornerShape(14.dp),
-                        border = BorderStroke(1.dp, CardBorder),
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
-                        Row(
-                            modifier = Modifier.padding(14.dp),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Column {
-                                Text("Quiet Hours", color = TextWhite, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
-                                Text("Mute non-essential alerts", color = TextMuted, fontSize = 11.sp)
+                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Text("Default snooze", color = TextWhite, fontWeight = FontWeight.SemiBold)
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            listOf(5, 10, 15, 30).forEach { minutes ->
+                                FilterChip(
+                                    selected = settings.snoozeDurationMinutes == minutes,
+                                    onClick = { onUpdate(settings.copy(snoozeDurationMinutes = minutes)) },
+                                    label = { Text("${minutes}m") }
+                                )
                             }
-                            Text("10:00 PM – 6:00 AM", color = CyanBrand, fontSize = 13.sp, fontWeight = FontWeight.Bold)
                         }
                     }
                 }
-
-                // Snooze Duration
                 item {
-                    Surface(
-                        color = CardBackground,
-                        shape = RoundedCornerShape(14.dp),
-                        border = BorderStroke(1.dp, CardBorder),
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
-                        Row(
-                            modifier = Modifier.padding(14.dp),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Column {
-                                Text("Snooze Duration", color = TextWhite, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
-                                Text("Delay interval on reminder snooze", color = TextMuted, fontSize = 11.sp)
+                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Text("Notification sound", color = TextWhite, fontWeight = FontWeight.SemiBold)
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            listOf("Chime", "System", "Silent").forEach { sound ->
+                                FilterChip(
+                                    selected = settings.notificationSound == sound,
+                                    onClick = { onUpdate(settings.copy(notificationSound = sound)) },
+                                    label = { Text(sound) }
+                                )
                             }
-                            Text("${settings.snoozeDurationMinutes} minutes", color = PurpleBrand, fontSize = 13.sp, fontWeight = FontWeight.Bold)
                         }
+                        Text("Soft LifeTrack chime, phone default sound, or silent. Android system channel overrides still apply.", color = TextMuted, fontSize = 11.sp)
+                    }
+                }
+                item {
+                    OutlinedButton(onClick = {
+                        if (!NotificationPolicy.canNotify(context, NotificationPolicy.Module.TASKS)) {
+                            Toast.makeText(context, "Enable Task notifications and allow Android notification permission first", Toast.LENGTH_LONG).show()
+                        } else {
+                            val test = NotificationPolicy.builder(context, NotificationPolicy.Module.TASKS, "Task reminders", NotificationManager.IMPORTANCE_HIGH)
+                                .setContentTitle("LifeTrack notification test")
+                                .setContentText("Your reminder sound and logo are ready")
+                                .build()
+                            NotificationManagerCompat.from(context).notify(90011, test)
+                        }
+                    }) {
+                        Icon(Icons.Default.NotificationsActive, contentDescription = null)
+                        Spacer(Modifier.width(8.dp))
+                        Text("Send test notification")
                     }
                 }
 
@@ -676,6 +679,7 @@ fun NotificationSettingsScreen(
                         ModuleNotificationRow("Habits", Icons.Default.Spa, EmeraldBrand, settings.notifyHabits) { onUpdate(settings.copy(notifyHabits = it)) }
                         ModuleNotificationRow("Routines", Icons.Default.Schedule, CyanBrand, settings.notifyRoutines) { onUpdate(settings.copy(notifyRoutines = it)) }
                         ModuleNotificationRow("Tasks", Icons.Default.CheckCircle, PurpleBrand, settings.notifyTasks) { onUpdate(settings.copy(notifyTasks = it)) }
+                        ModuleNotificationRow("Calendar", Icons.Default.Event, CyanBrand, settings.notifyCalendar) { onUpdate(settings.copy(notifyCalendar = it)) }
                         ModuleNotificationRow("Notes", Icons.Default.Note, CoralBrand, settings.notifyNotes) { onUpdate(settings.copy(notifyNotes = it)) }
                         ModuleNotificationRow("Water", Icons.Default.WaterDrop, Color(0xFF00B4D8), settings.notifyWater) { onUpdate(settings.copy(notifyWater = it)) }
                         ModuleNotificationRow("Study", Icons.Default.MenuBook, AmberBrand, settings.notifyStudy) { onUpdate(settings.copy(notifyStudy = it)) }
@@ -715,6 +719,39 @@ private fun ModuleNotificationRow(
             onCheckedChange = onCheckedChange,
             colors = SwitchDefaults.colors(checkedThumbColor = Color.White, checkedTrackColor = PurpleBrand)
         )
+    }
+}
+
+/** Shared native picker: no typing or locale-specific HH:mm mistakes. */
+@Composable
+fun ReminderTimeButton(label: String, time: String, onSelected: (String) -> Unit) {
+    val context = LocalContext.current
+    OutlinedButton(onClick = {
+        val parts = time.split(':')
+        val hour = parts.getOrNull(0)?.toIntOrNull()?.coerceIn(0, 23) ?: 20
+        val minute = parts.getOrNull(1)?.toIntOrNull()?.coerceIn(0, 59) ?: 0
+        TimePickerDialog(context, { _, h, m ->
+            onSelected("%02d:%02d".format(java.util.Locale.US, h, m))
+        }, hour, minute, false).show()
+    }) {
+        Icon(Icons.Default.AccessTime, contentDescription = null, modifier = Modifier.size(18.dp))
+        Spacer(Modifier.width(6.dp))
+        Text("$label: $time")
+    }
+}
+
+@Composable
+private fun ReminderTimePreferenceRow(title: String, subtitle: String, time: String, onTimeChange: (String) -> Unit) {
+    Row(
+        modifier = Modifier.fillMaxWidth().background(CardBackground, RoundedCornerShape(14.dp)).padding(12.dp),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Column(modifier = Modifier.weight(1f)) {
+            Text(title, color = TextWhite, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+            Text(subtitle, color = TextMuted, fontSize = 11.sp)
+        }
+        ReminderTimeButton("Set", time, onTimeChange)
     }
 }
 

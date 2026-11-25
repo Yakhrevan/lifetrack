@@ -655,7 +655,7 @@ private fun CreateOrEditHabitView(
 
     // Reminders state
     var reminderEnabled by remember { mutableStateOf(initialHabit?.reminders?.any { it.enabled } ?: true) }
-    var reminderTime by remember { mutableStateOf(initialHabit?.reminders?.firstOrNull()?.time ?: "20:00") }
+    var reminderTime by remember { mutableStateOf(initialHabit?.reminders?.firstOrNull()?.time ?: UserProfileRepository.getSettings(context).defaultReminderTime) }
     var reminderMessage by remember { mutableStateOf(initialHabit?.reminders?.firstOrNull()?.notificationMessage ?: "") }
     var errorMessage by remember { mutableStateOf<String?>(null) }
 
@@ -1110,22 +1110,12 @@ private fun CreateOrEditHabitView(
                     }
 
                     if (reminderEnabled) {
-                        OutlinedTextField(
-                            value = reminderTime,
-                            onValueChange = { reminderTime = it.take(5) },
-                            label = { Text("Reminder Time (HH:mm, 24-hr)") },
-                            modifier = Modifier.fillMaxWidth(),
-                            shape = RoundedCornerShape(12.dp),
-                            colors = OutlinedTextFieldDefaults.colors(
-                                focusedTextColor = TextWhite,
-                                unfocusedTextColor = TextWhite,
-                                focusedBorderColor = PurpleBrand,
-                                unfocusedBorderColor = CardBorder,
-                                focusedContainerColor = CardInner,
-                                unfocusedContainerColor = CardInner
-                            ),
-                            singleLine = true
-                        )
+                        ReminderTimeButton("Reminder time", reminderTime) { reminderTime = it }
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            listOf("Morning" to "09:00", "Afternoon" to "13:00", "Evening" to "20:00").forEach { (label, preset) ->
+                                FilterChip(selected = reminderTime == preset, onClick = { reminderTime = preset }, label = { Text(label, fontSize = 11.sp) })
+                            }
+                        }
 
                         OutlinedTextField(
                             value = reminderMessage,

@@ -55,6 +55,7 @@ class HabitRoutineReminderWorker(
             val routine = HabitRoutineRepository.getRoutineById(applicationContext, itemId)
                 ?: return Result.success()
             if (routine.isPaused || routine.isArchived || !routine.reminderEnabled ||
+                (expectedTime != null && routine.reminderTime != expectedTime) ||
                 !HabitRoutineRepository.isRoutineScheduled(routine, today) ||
                 HabitRoutineRepository.getSessionsForDate(applicationContext, today.toString())
                     .any { it.routineId == routine.id && it.isCompleted }
@@ -63,6 +64,8 @@ class HabitRoutineReminderWorker(
             message = "Ready to start your ${routine.name}?"
         }
 
+        val module = if (type == "routine") NotificationPolicy.Module.ROUTINES else NotificationPolicy.Module.HABITS
+        if (!NotificationPolicy.canNotify(applicationContext, module)) return Result.success()
         // Check notification permission on Android 13+
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
             ContextCompat.checkSelfPermission(applicationContext, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
@@ -70,24 +73,11 @@ class HabitRoutineReminderWorker(
             return Result.success()
         }
 
-        val channelId = "lifetrack_habits_routines_channel"
         val manager = applicationContext.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
-
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            val channel = NotificationChannel(
-                channelId,
-                "Habits & Routines Reminders",
-                NotificationManager.IMPORTANCE_DEFAULT
-            ).apply {
-                description = "User-scheduled reminders for personal habits and routines"
-                enableVibration(true)
-            }
-            manager.createNotificationChannel(channel)
-        }
 
         // Tap opens MainActivity
         val openIntent = Intent(applicationContext, MainActivity::class.java).apply {
-            flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK
+            flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP
             putExtra("navigate_to", if (type == "routine") "Routines" else "Habits")
             putExtra("item_id", itemId)
         }
@@ -111,8 +101,8 @@ class HabitRoutineReminderWorker(
             applicationContext, itemId, type, title, message, notificationId, notificationId + 2, reminderId
         )
 
-        val notification = NotificationCompat.Builder(applicationContext, channelId)
-            .setSmallIcon(android.R.drawable.ic_dialog_info)
+        val snoozeMinutes = NotificationPolicy.snoozeMinutes(applicationContext)
+        val notification = NotificationPolicy.builder(applicationContext, module, if (type == "routine") "Routine reminders" else "Habit reminders")
             .setContentTitle(title)
             .setContentText(message)
             .setStyle(NotificationCompat.BigTextStyle().bigText(message))
@@ -120,7 +110,7 @@ class HabitRoutineReminderWorker(
             .setAutoCancel(true)
             .setContentIntent(pendingIntent)
             .addAction(android.R.drawable.checkbox_on_background, "Mark Done", donePendingIntent)
-            .addAction(android.R.drawable.ic_lock_idle_alarm, "Snooze 10m", snoozePendingIntent)
+            .addAction(android.R.drawable.ic_lock_idle_alarm, "Snooze ${snoozeMinutes}m", snoozePendingIntent)
             .build()
 
         manager.notify(notificationId, notification)
@@ -201,7 +191,10 @@ object HabitRoutineNotificationScheduler {
         val workManager = WorkManager.getInstance(context)
         val prefs = context.getSharedPreferences("lifetrack_reminder_schedule_ids", Context.MODE_PRIVATE)
         val scheduledIds = prefs.getStringSet("habit_${habit.id}", emptySet()).orEmpty().toSet()
-        scheduledIds.forEach { workManager.cancelUniqueWork("habit_reminder_${habit.id}_$it") }
+        scheduledIds.forEach {
+            workManager.cancelUniqueWork("habit_reminder_${habit.id}_$it")
+            workManager.cancelUniqueWork("snooze_habit_${habit.id}_$it")
+        }
         prefs.edit().remove("habit_${habit.id}").apply()
         // Cancel names used by older releases during the migration to stable reminder IDs.
         for (i in 0..10) workManager.cancelUniqueWork("habit_reminder_${habit.id}_$i")
@@ -226,6 +219,7 @@ object HabitRoutineNotificationScheduler {
             .putString(HabitRoutineReminderWorker.KEY_TITLE, "Routine: ${routine.name}")
             .putString(HabitRoutineReminderWorker.KEY_MESSAGE, "Ready to start your ${routine.name}?")
             .putString(HabitRoutineReminderWorker.KEY_TYPE, "routine")
+            .putString(HabitRoutineReminderWorker.KEY_EXPECTED_TIME, routine.reminderTime)
             .build()
         val request = PeriodicWorkRequestBuilder<HabitRoutineReminderWorker>(24, TimeUnit.HOURS)
             .setInitialDelay(delayMillis, TimeUnit.MILLISECONDS)
@@ -240,15 +234,21 @@ object HabitRoutineNotificationScheduler {
 
     fun cancelRoutineReminders(context: Context, routine: Routine) {
         WorkManager.getInstance(context).cancelUniqueWork("routine_reminder_${routine.id}")
+        WorkManager.getInstance(context).cancelUniqueWork("snooze_routine_${routine.id}_")
     }
 
     fun snoozeReminder(context: Context, itemId: String, title: String, message: String, minutes: Int = 10, type: String = "habit", notificationId: Int = "${type}_${itemId}_".hashCode(), reminderId: String = "") {
+        val expectedTime = if (type == "habit")
+            HabitRoutineRepository.getHabitById(context, itemId)?.reminders?.firstOrNull { it.id == reminderId && it.enabled }?.time
+        else HabitRoutineRepository.getRoutineById(context, itemId)?.reminderTime
+        if (expectedTime == null) return
         val data = Data.Builder()
             .putString(HabitRoutineReminderWorker.KEY_ITEM_ID, itemId)
             .putString(HabitRoutineReminderWorker.KEY_TITLE, title)
             .putString(HabitRoutineReminderWorker.KEY_MESSAGE, message)
             .putString(HabitRoutineReminderWorker.KEY_TYPE, type)
             .putString(HabitRoutineReminderWorker.KEY_REMINDER_ID, reminderId)
+            .putString(HabitRoutineReminderWorker.KEY_EXPECTED_TIME, expectedTime)
             .putInt(HabitRoutineReminderWorker.KEY_NOTIFICATION_ID, notificationId)
             .build()
 
@@ -258,7 +258,7 @@ object HabitRoutineNotificationScheduler {
             .build()
 
         WorkManager.getInstance(context).enqueueUniqueWork(
-            "snooze_${itemId}_${System.currentTimeMillis()}",
+            "snooze_${type}_${itemId}_${reminderId}",
             ExistingWorkPolicy.REPLACE,
             request
         )

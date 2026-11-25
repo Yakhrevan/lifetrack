@@ -293,6 +293,8 @@ object CalendarStorage {
 @Composable
 fun CalendarScreen(
     logs: List<LogEntry>,
+    openEventId: String? = null,
+    quickCreateToken: Int = 0,
     onAddEntry: (String) -> Unit = {},
     onEditEntry: (LogEntry) -> Unit = {},
     onDeleteEntry: (LogEntry) -> Unit = {},
@@ -366,6 +368,21 @@ fun CalendarScreen(
     var preselectedTypeForAdd by remember { mutableStateOf(ActivityType.EVENT) }
     var editingActivity by remember { mutableStateOf<CalendarItem?>(null) }
     var selectedActivityForDetails by remember { mutableStateOf<CalendarItem?>(null) }
+    LaunchedEffect(openEventId) {
+        if (openEventId != null) {
+            activities.firstOrNull { it.id == openEventId }?.let { event ->
+                selectedDate = runCatching { LocalDate.parse(event.date) }.getOrDefault(LocalDate.now())
+                currentYearMonth = YearMonth.from(selectedDate)
+                selectedActivityForDetails = event
+            }
+        }
+    }
+    LaunchedEffect(quickCreateToken) {
+        if (quickCreateToken > 0) {
+            preselectedTypeForAdd = ActivityType.EVENT
+            showAddEventModal = true
+        }
+    }
     var showDateDetailsModal by remember { mutableStateOf(false) }
     var showFiltersModal by remember { mutableStateOf(false) }
     var showDailySummaryModal by remember { mutableStateOf(false) }

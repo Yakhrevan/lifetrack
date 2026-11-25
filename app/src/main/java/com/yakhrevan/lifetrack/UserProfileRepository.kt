@@ -38,10 +38,13 @@ data class AppSettings(
     val defaultReminderTime: String = "20:00",
     val quietHoursStart: String = "22:00",
     val quietHoursEnd: String = "06:00",
+    val quietHoursEnabled: Boolean = true,
+    val notificationSound: String = "Chime", // Chime, System, Silent
     val snoozeDurationMinutes: Int = 10,
     val notifyHabits: Boolean = true,
     val notifyRoutines: Boolean = true,
     val notifyTasks: Boolean = true,
+    val notifyCalendar: Boolean = true,
     val notifyNotes: Boolean = true,
     val notifyWater: Boolean = true,
     val notifyStudy: Boolean = true,
@@ -188,10 +191,13 @@ object UserProfileRepository {
             defaultReminderTime = prefs.getString("default_reminder_time", "20:00") ?: "20:00",
             quietHoursStart = prefs.getString("quiet_hours_start", "22:00") ?: "22:00",
             quietHoursEnd = prefs.getString("quiet_hours_end", "06:00") ?: "06:00",
+            quietHoursEnabled = prefs.getBoolean("quiet_hours_enabled", true),
+            notificationSound = prefs.getString("notification_sound", "Chime") ?: "Chime",
             snoozeDurationMinutes = prefs.getInt("snooze_duration_min", 10),
             notifyHabits = prefs.getBoolean("notify_habits", true),
             notifyRoutines = prefs.getBoolean("notify_routines", true),
             notifyTasks = prefs.getBoolean("notify_tasks", true),
+            notifyCalendar = prefs.getBoolean("notify_calendar", true),
             notifyNotes = prefs.getBoolean("notify_notes", true),
             notifyWater = prefs.getBoolean("notify_water", true),
             notifyStudy = prefs.getBoolean("notify_study", true),
@@ -229,10 +235,13 @@ object UserProfileRepository {
             .putString("default_reminder_time", settings.defaultReminderTime)
             .putString("quiet_hours_start", settings.quietHoursStart)
             .putString("quiet_hours_end", settings.quietHoursEnd)
+            .putBoolean("quiet_hours_enabled", settings.quietHoursEnabled)
+            .putString("notification_sound", settings.notificationSound)
             .putInt("snooze_duration_min", settings.snoozeDurationMinutes)
             .putBoolean("notify_habits", settings.notifyHabits)
             .putBoolean("notify_routines", settings.notifyRoutines)
             .putBoolean("notify_tasks", settings.notifyTasks)
+            .putBoolean("notify_calendar", settings.notifyCalendar)
             .putBoolean("notify_notes", settings.notifyNotes)
             .putBoolean("notify_water", settings.notifyWater)
             .putBoolean("notify_study", settings.notifyStudy)

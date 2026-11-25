@@ -14,6 +14,7 @@ import java.util.concurrent.TimeUnit
 
 class StudyReminderWorker(context: Context, params: WorkerParameters) : CoroutineWorker(context, params) {
     override suspend fun doWork(): Result {
+        if (!NotificationPolicy.canNotify(applicationContext, NotificationPolicy.Module.STUDY)) return Result.success()
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
             ContextCompat.checkSelfPermission(applicationContext, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
         ) {
@@ -21,20 +22,7 @@ class StudyReminderWorker(context: Context, params: WorkerParameters) : Coroutin
         }
 
         val reminderType = inputData.getString(KEY_TYPE) ?: "study"
-        val channelId = "lifetrack_study_reminders"
         val manager = applicationContext.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
-
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            manager.createNotificationChannel(
-                NotificationChannel(
-                    channelId,
-                    "Study & Focus Reminders",
-                    NotificationManager.IMPORTANCE_DEFAULT
-                ).apply {
-                    description = "Reminders for scheduled study sessions, break alerts, and daily goals"
-                }
-            )
-        }
 
         val (title, text) = when (reminderType) {
             "break" -> Pair("Time for a Break!", "You've been focusing hard. Take a 5-minute break to recharge.")
@@ -42,8 +30,7 @@ class StudyReminderWorker(context: Context, params: WorkerParameters) : Coroutin
             else -> Pair("Time to Study!", "Stay consistent with your learning goals. Start a focus session now.")
         }
 
-        val notification = NotificationCompat.Builder(applicationContext, channelId)
-            .setSmallIcon(android.R.drawable.ic_popup_reminder)
+        val notification = NotificationPolicy.builder(applicationContext, NotificationPolicy.Module.STUDY, "Study and focus reminders")
             .setContentTitle(title)
             .setContentText(text)
             .setStyle(NotificationCompat.BigTextStyle().bigText(text))

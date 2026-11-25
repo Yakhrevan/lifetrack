@@ -40,7 +40,10 @@ object CalendarEventNotificationScheduler {
         // Cancel stale scheduled event work after edits/deletions.
         val prefs = context.getSharedPreferences("lifetrack_calendar_reminders", Context.MODE_PRIVATE)
         val previousIds = prefs.getStringSet("scheduled_event_ids", emptySet()).orEmpty()
-        (previousIds - activeIds).forEach { workManager.cancelUniqueWork(WORK_PREFIX + it) }
+        (previousIds - activeIds).forEach {
+            workManager.cancelUniqueWork(WORK_PREFIX + it)
+            workManager.cancelUniqueWork("calendar_event_snooze_$it")
+        }
 
         items.filter { it.type == ActivityType.EVENT }.forEach { schedule(context, it) }
         prefs.edit().putStringSet("scheduled_event_ids", activeIds).apply()
@@ -49,13 +52,16 @@ object CalendarEventNotificationScheduler {
     fun schedule(context: Context, item: CalendarItem) {
         val workName = WORK_PREFIX + item.id
         WorkManager.getInstance(context).cancelUniqueWork(workName)
+        WorkManager.getInstance(context).cancelUniqueWork("calendar_event_snooze_${item.id}")
         scheduleNext(context, item, LocalDateTime.now(), ExistingWorkPolicy.REPLACE)
     }
 
     fun snooze(context: Context, eventId: String, minutes: Int = 10) {
+        val current = CalendarStorage.load(context).firstOrNull { it.id == eventId && !it.isCompleted && it.reminder.isNotBlank() } ?: return
         val data = Data.Builder()
             .putString(KEY_EVENT_ID, eventId)
             .putBoolean(KEY_IS_SNOOZE, true)
+            .putString(KEY_EXPECTED_REMINDER, current.reminder)
             .build()
         val request = OneTimeWorkRequestBuilder<CalendarEventReminderWorker>()
             .setInitialDelay(minutes.coerceAtLeast(1).toLong(), TimeUnit.MINUTES)
@@ -72,14 +78,15 @@ object CalendarEventNotificationScheduler {
         context: Context,
         item: CalendarItem,
         after: LocalDateTime,
-        policy: ExistingWorkPolicy
+        policy: ExistingWorkPolicy,
+        afterDelivery: Boolean = false
     ) {
         if (item.type != ActivityType.EVENT || item.isCompleted || item.reminder.isBlank()) return
         val eventDate = runCatching { LocalDate.parse(item.date) }.getOrNull() ?: return
         // All-day events have no wall-clock start time; anchor their reminder to local midnight.
         val eventTime = if (item.isAllDay) LocalTime.MIDNIGHT else parseTime(item.startTime) ?: return
         val leadMinutes = parseLeadMinutes(item.reminder) ?: return
-        val nextEvent = nextOccurrence(item, eventDate, eventTime, after) ?: return
+        val nextEvent = nextReminderOccurrence(item, eventDate, eventTime, after, leadMinutes, afterDelivery) ?: return
         val reminderTime = nextEvent.minusMinutes(leadMinutes)
         // If an event is created inside its reminder window, notify promptly rather than
         // silently skipping the event because its configured lead time is already past.
@@ -117,6 +124,25 @@ object CalendarEventNotificationScheduler {
         return null
     }
 
+    /** After delivery, skip the occurrence whose lead-time window has already fired. */
+    internal fun nextReminderOccurrence(
+        item: CalendarItem,
+        firstDate: LocalDate,
+        time: LocalTime,
+        after: LocalDateTime,
+        leadMinutes: Long,
+        afterDelivery: Boolean
+    ): LocalDateTime? {
+        if (!afterDelivery) return nextOccurrence(item, firstDate, time, after)
+        var cursor = after
+        repeat(3_660) {
+            val candidate = nextOccurrence(item, firstDate, time, cursor) ?: return null
+            if (candidate.minusMinutes(leadMinutes).isAfter(after)) return candidate
+            cursor = candidate
+        }
+        return null
+    }
+
     internal fun parseLeadMinutes(value: String): Long? {
         val match = Regex("(\\d+)\\s*(minute|min|hour|hr|day)", RegexOption.IGNORE_CASE)
             .find(value) ?: return null
@@ -146,6 +172,7 @@ object CalendarEventNotificationScheduler {
 
     private const val KEY_EVENT_ID = "calendar_event_id"
     internal const val KEY_IS_SNOOZE = "calendar_event_is_snooze"
+    internal const val KEY_EXPECTED_REMINDER = "calendar_event_expected_reminder"
 
     internal fun eventIdKey() = KEY_EVENT_ID
 }
@@ -159,24 +186,15 @@ class CalendarEventReminderWorker(
             ?: return Result.failure()
         val isSnooze = inputData.getBoolean(CalendarEventNotificationScheduler.KEY_IS_SNOOZE, false)
         val item = CalendarStorage.load(applicationContext).firstOrNull {
-            it.id == eventId && it.type == ActivityType.EVENT && !it.isCompleted
+            it.id == eventId && it.type == ActivityType.EVENT && !it.isCompleted && it.reminder.isNotBlank()
         } ?: return Result.success()
+        val expectedReminder = inputData.getString(CalendarEventNotificationScheduler.KEY_EXPECTED_REMINDER)
+        if (isSnooze && expectedReminder != null && expectedReminder != item.reminder) return Result.success()
 
         val notificationManager = applicationContext.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
-        val channelId = "lifetrack_calendar_events"
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            notificationManager.createNotificationChannel(
-                NotificationChannel(channelId, "Calendar event reminders", NotificationManager.IMPORTANCE_HIGH).apply {
-                    description = "Reminders for events saved in LifeTrack Calendar"
-                }
-            )
-        }
-
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU ||
-            ContextCompat.checkSelfPermission(applicationContext, Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED
-        ) {
+        if (NotificationPolicy.canNotify(applicationContext, NotificationPolicy.Module.CALENDAR)) {
             val openIntent = Intent(applicationContext, MainActivity::class.java).apply {
-                flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
+                flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP
                 putExtra("navigate_to", "Calendar")
                 putExtra("calendar_event_id", item.id)
             }
@@ -195,15 +213,14 @@ class CalendarEventReminderWorker(
             )
             notificationManager.notify(
                 notificationId,
-                NotificationCompat.Builder(applicationContext, channelId)
-                    .setSmallIcon(android.R.drawable.ic_dialog_info)
+                NotificationPolicy.builder(applicationContext, NotificationPolicy.Module.CALENDAR, "Calendar reminders", NotificationManager.IMPORTANCE_HIGH)
                     .setContentTitle(item.title)
                     .setContentText(body)
                     .setStyle(NotificationCompat.BigTextStyle().bigText(body))
                     .setPriority(NotificationCompat.PRIORITY_HIGH)
                     .setAutoCancel(true)
                     .setContentIntent(pending)
-                    .addAction(android.R.drawable.ic_lock_idle_alarm, "Snooze 10m", snoozePending)
+                    .addAction(android.R.drawable.ic_lock_idle_alarm, "Snooze ${NotificationPolicy.snoozeMinutes(applicationContext)}m", snoozePending)
                     .build()
             )
         }
@@ -212,7 +229,7 @@ class CalendarEventReminderWorker(
         // the currently executing unique work request.
         if (!isSnooze) {
             CalendarEventNotificationScheduler.scheduleNext(
-                applicationContext, item, LocalDateTime.now(), ExistingWorkPolicy.APPEND_OR_REPLACE
+                applicationContext, item, LocalDateTime.now(), ExistingWorkPolicy.APPEND_OR_REPLACE, afterDelivery = true
             )
         }
         return Result.success()

@@ -77,10 +77,26 @@ internal fun isValidIsoDateRange(start: String, end: String): Boolean = runCatch
     !endDate.isBefore(startDate)
 }.getOrDefault(false)
 
+data class NotificationTarget(val page: String, val itemId: String?, val requestId: Long = System.nanoTime())
+
+private fun parseNotificationTarget(intent: Intent?): NotificationTarget? {
+    val page = intent?.getStringExtra("navigate_to") ?: intent?.getStringExtra("open_page") ?: return null
+    if (page !in setOf("Tasks", "Habits", "Routines", "Calendar", "Water", "Study")) return null
+    val itemId = when (page) {
+        "Tasks" -> intent.getStringExtra("task_id")
+        "Calendar" -> intent.getStringExtra("calendar_event_id")
+        else -> intent.getStringExtra("item_id")
+    }
+    return NotificationTarget(page, itemId)
+}
+
 class MainActivity:ComponentActivity(){
+    private var notificationTarget by mutableStateOf<NotificationTarget?>(null)
+
     override fun onCreate(savedInstanceState:Bundle?){
         installSplashScreen()
         super.onCreate(savedInstanceState)
+        notificationTarget = parseNotificationTarget(intent)
         window.statusBarColor = android.graphics.Color.rgb(248,250,255)
         window.navigationBarColor = android.graphics.Color.rgb(248,250,255)
         val savedSettings = UserProfileRepository.getSettings(this)
@@ -126,13 +142,21 @@ class MainActivity:ComponentActivity(){
                 }
             }
             CompositionLocalProvider(LocalDensity provides scaledDensity) {
-                MaterialTheme(colorScheme = scheme) { LifeTrack() }
+                MaterialTheme(colorScheme = scheme) {
+                    LifeTrack(notificationTarget, onNotificationTargetConsumed = { notificationTarget = null })
+                }
             }
         }
     }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        notificationTarget = parseNotificationTarget(intent)
+    }
 }
 @OptIn(ExperimentalMaterial3Api::class)
-@Composable fun LifeTrack(){
+@Composable fun LifeTrack(notificationTarget: NotificationTarget? = null, onNotificationTargetConsumed: () -> Unit = {}){
     val context=androidx.compose.ui.platform.LocalContext.current
     val repository = remember { LifeTrackRepository(context) }
     val profilePrefs = remember { context.getSharedPreferences("lifetrack_profile",Context.MODE_PRIVATE) }
@@ -317,6 +341,10 @@ class MainActivity:ComponentActivity(){
     LaunchedEffect(page) { if (page != "Settings") settingsInitialSubScreen = "Main" }
     var showLauncher  by remember { mutableStateOf(false) }
     var showQuickAdd  by remember { mutableStateOf(false) }
+    var requestedTaskId by remember { mutableStateOf<String?>(null) }
+    var requestedEventId by remember { mutableStateOf<String?>(null) }
+    var quickCreateTaskToken by remember { mutableIntStateOf(0) }
+    var quickCreateEventToken by remember { mutableIntStateOf(0) }
     var moneyInitialQuickAddType by remember { mutableStateOf<String?>(null) }
     var add by remember { mutableStateOf(false) }
     var cat by remember { mutableStateOf("Study") }
@@ -445,6 +473,15 @@ class MainActivity:ComponentActivity(){
                     page = dest
                 }
             }
+        }
+    }
+
+    LaunchedEffect(notificationTarget?.requestId) {
+        notificationTarget?.let { target ->
+            requestedTaskId = if (target.page == "Tasks") target.itemId else null
+            requestedEventId = if (target.page == "Calendar") target.itemId else null
+            navigateTo(target.page)
+            onNotificationTargetConsumed()
         }
     }
 
@@ -824,7 +861,7 @@ class MainActivity:ComponentActivity(){
                         "Habit" -> navigateTo("Habits")
                         "Webling" -> navigateTo("Digital Webling")
                         "Note", "Notes" -> navigateTo("Notes")
-                        "Task", "Tasks" -> navigateTo("Tasks")
+                        "Task", "Tasks" -> { quickCreateTaskToken++; navigateTo("Tasks") }
                         "Food" -> {
                             moneyInitialQuickAddType = "Expense"
                             navigateTo("Money")
@@ -837,7 +874,9 @@ class MainActivity:ComponentActivity(){
             )
             "Tasks" -> TasksScreen(
                 modifier = Modifier.fillMaxSize().padding(padding),
-                onNavigateBack = navigateBack
+                onNavigateBack = navigateBack,
+                openTaskId = requestedTaskId,
+                quickCreateToken = quickCreateTaskToken
             )
             "Notes" -> NotesScreen(
                 modifier = Modifier.fillMaxSize().padding(padding),
@@ -845,6 +884,8 @@ class MainActivity:ComponentActivity(){
             )
             "Calendar" -> CalendarScreen(
                 logs = logs,
+                openEventId = requestedEventId,
+                quickCreateToken = quickCreateEventToken,
                 onAddEntry = { selectedCat ->
                     cat = selectedCat
                     entryDate = today
@@ -1199,10 +1240,18 @@ class MainActivity:ComponentActivity(){
                     "Habit" -> navigateTo("Habits")
                     "Webling" -> navigateTo("Digital Webling")
                     "Note", "Notes" -> navigateTo("Notes")
-                    "Task", "Tasks" -> navigateTo("Tasks")
+                    "Task", "Tasks" -> {
+                        quickCreateTaskToken++
+                        requestedTaskId = null
+                        navigateTo("Tasks")
+                    }
                     "Water" -> navigateTo("Water")
                     "Study", "Focus" -> navigateTo("Study")
-                    "Calendar" -> navigateTo("Calendar")
+                    "Calendar" -> {
+                        quickCreateEventToken++
+                        requestedEventId = null
+                        navigateTo("Calendar")
+                    }
                     "More" -> navigateTo("More")
                     "Food" -> {
                         moneyInitialQuickAddType = "Expense"

@@ -533,6 +533,7 @@ private fun RoutineBuilderView(
     onCancel: () -> Unit,
     modifier: Modifier = Modifier
 ) {
+    val context = LocalContext.current
     val isEdit = initialRoutine != null && initialRoutine.createdAtMs > 0 && initialRoutine.id.isNotBlank()
 
     var name by remember { mutableStateOf(initialRoutine?.name ?: "") }
@@ -546,7 +547,7 @@ private fun RoutineBuilderView(
     var selectedWeekdays by remember { mutableStateOf(initialRoutine?.weekdays ?: setOf(1, 3, 5)) }
     var startTime by remember { mutableStateOf(initialRoutine?.startTime ?: "06:30") }
     var reminderEnabled by remember { mutableStateOf(initialRoutine?.reminderEnabled ?: false) }
-    var reminderTime by remember { mutableStateOf(initialRoutine?.reminderTime ?: "06:20") }
+    var reminderTime by remember { mutableStateOf(initialRoutine?.reminderTime ?: UserProfileRepository.getSettings(context).defaultReminderTime) }
 
     // Dynamic steps: starts with 0 steps when creating a new routine (per requirement 8)
     var steps by remember { mutableStateOf(initialRoutine?.steps?.toMutableList() ?: mutableListOf<RoutineStep>()) }
@@ -825,6 +826,9 @@ private fun RoutineBuilderView(
                             checkedTrackColor = PurpleBrand
                         )
                     )
+                }
+                if (reminderEnabled) {
+                    ReminderTimeButton("Routine reminder", reminderTime) { reminderTime = it }
                 }
             }
         }

@@ -88,7 +88,9 @@ object TaskRepository {
 
     fun toggleTaskCompletion(context: Context, id: String): Boolean {
         val task = getTaskById(context, id) ?: return false
-        val newStatus = !task.isCompleted
+        // For repeated tasks, yesterday's completion must not complete today's occurrence.
+        val newStatus = if (TaskReminderSchedule.repeating(task))
+            !TaskReminderSchedule.completedFor(task, LocalDate.now()) else !task.isCompleted
         val updated = task.copy(
             isCompleted = newStatus,
             completedAtMs = if (newStatus) System.currentTimeMillis() else null

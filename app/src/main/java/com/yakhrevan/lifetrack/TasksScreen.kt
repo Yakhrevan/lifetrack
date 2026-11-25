@@ -56,7 +56,9 @@ private val TextMuted = Color(0xFF94A3B8)
 @Composable
 fun TasksScreen(
     modifier: Modifier = Modifier,
-    onNavigateBack: () -> Unit = {}
+    onNavigateBack: () -> Unit = {},
+    openTaskId: String? = null,
+    quickCreateToken: Int = 0
 ) {
     val context = LocalContext.current
     var refreshTrigger by remember { mutableIntStateOf(0) }
@@ -64,6 +66,15 @@ fun TasksScreen(
     // Screen views: "list", "create", "edit", "details", "calendar", "reminder_settings"
     var currentView by remember { mutableStateOf("list") }
     var selectedTaskId by remember { mutableStateOf<String?>(null) }
+    LaunchedEffect(openTaskId) {
+        if (openTaskId != null && TaskRepository.getTaskById(context, openTaskId) != null) {
+            selectedTaskId = openTaskId
+            currentView = "details"
+        }
+    }
+    LaunchedEffect(quickCreateToken) {
+        if (quickCreateToken > 0) currentView = "create"
+    }
     var taskToEdit by remember { mutableStateOf<TaskItem?>(null) }
 
     val tasks = remember(refreshTrigger) {
@@ -1537,8 +1548,9 @@ private fun TaskReminderSettingsView(
     onSave: (TaskItem) -> Unit,
     modifier: Modifier = Modifier
 ) {
+    val context = LocalContext.current
     var reminderEnabled by remember { mutableStateOf(task.reminderEnabled) }
-    var reminderTime by remember { mutableStateOf(task.reminderTime ?: "16:30") }
+    var reminderTime by remember { mutableStateOf(task.reminderTime ?: UserProfileRepository.getSettings(context).defaultReminderTime) }
     var notificationMessage by remember { mutableStateOf(task.notificationMessage) }
     var snoozeMinutes by remember { mutableIntStateOf(task.snoozeMinutes) }
 
@@ -1604,13 +1616,12 @@ private fun TaskReminderSettingsView(
                     }
 
                     if (reminderEnabled) {
-                        OutlinedTextField(
-                            value = reminderTime,
-                            onValueChange = { reminderTime = it.take(5) },
-                            label = { Text("Reminder Time (HH:mm)") },
-                            modifier = Modifier.fillMaxWidth(),
-                            singleLine = true
-                        )
+                        ReminderTimeButton("Reminder time", reminderTime) { reminderTime = it }
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            listOf("Morning" to "09:00", "Afternoon" to "13:00", "Evening" to "20:00").forEach { (label, preset) ->
+                                FilterChip(selected = reminderTime == preset, onClick = { reminderTime = preset }, label = { Text(label, fontSize = 11.sp) })
+                            }
+                        }
 
                         OutlinedTextField(
                             value = notificationMessage,

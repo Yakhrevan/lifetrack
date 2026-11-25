@@ -21,6 +21,7 @@ import java.util.concurrent.TimeUnit
 
 class WaterReminderWorker(context: Context, params: WorkerParameters) : CoroutineWorker(context, params) {
     override suspend fun doWork(): Result {
+        if (!NotificationPolicy.canNotify(applicationContext, NotificationPolicy.Module.WATER)) return Result.success()
         val settings = WaterRepository.loadSettings(applicationContext)
         if (!settings.remindersEnabled) return Result.success()
 
@@ -52,20 +53,6 @@ class WaterReminderWorker(context: Context, params: WorkerParameters) : Coroutin
             return Result.success()
         }
 
-        val channelId = "lifetrack_water"
-        val manager = applicationContext.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            manager.createNotificationChannel(
-                NotificationChannel(
-                    channelId,
-                    "Hydration Reminders",
-                    NotificationManager.IMPORTANCE_DEFAULT
-                ).apply {
-                    description = "Personalized reminders to stay hydrated throughout the day"
-                }
-            )
-        }
-
         val remainingMl = (settings.dailyGoalMl - todayTotal).coerceAtLeast(0)
         val remainingFormatted = settings.unit.format(remainingMl)
 
@@ -95,8 +82,7 @@ class WaterReminderWorker(context: Context, params: WorkerParameters) : Coroutin
             5102
         )
 
-        val notificationBuilder = NotificationCompat.Builder(applicationContext, channelId)
-            .setSmallIcon(android.R.drawable.ic_dialog_info)
+        val notificationBuilder = NotificationPolicy.builder(applicationContext, NotificationPolicy.Module.WATER, "Hydration reminders")
             .setContentTitle("LifeTrack · Hydration Moment")
             .setContentText("Time for a refreshing drink. $remainingFormatted to reach your daily goal.")
             .setStyle(NotificationCompat.BigTextStyle().bigText("Take a mindful sip of water or herbal tea. Keeping hydrated throughout the day supports focus, energy, and overall wellbeing!"))
