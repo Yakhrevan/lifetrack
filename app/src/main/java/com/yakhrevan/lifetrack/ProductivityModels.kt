@@ -81,11 +81,13 @@ internal object ReminderQueueProjector {
             val timestamp = dateTime.atZone(ZoneId.systemDefault()).toInstant().toEpochMilli()
             return ReminderRecord(module, id, title, if (dateTime.isBefore(now)) "MISSED" else "UPCOMING", timestamp)
         }
-        val taskRecords = tasks.filter { it.reminderEnabled && !it.isArchived && !it.isCompleted }
+        val taskRecords = tasks.filter { it.reminderEnabled && !it.isArchived &&
+            (TaskReminderSchedule.repeating(it) || !it.isCompleted) }
             .mapNotNull { task ->
                 val time = runCatching { LocalTime.parse(task.reminderTime) }.getOrNull() ?: return@mapNotNull null
                 val dateTime = if (TaskReminderSchedule.repeating(task)) {
-                    if (TaskReminderSchedule.isScheduledFor(task, today)) today.atTime(time)
+                    if (TaskReminderSchedule.isScheduledFor(task, today) &&
+                        !TaskReminderSchedule.completedFor(task, today)) today.atTime(time)
                     else TaskReminderSchedule.nextOccurrence(task, now)
                 } else runCatching { LocalDate.parse(task.dueDate).atTime(time) }.getOrNull()
                 dateTime?.let { record("Tasks", task.id, task.title, it) }
@@ -152,7 +154,11 @@ internal object ProductivityEngine {
         return when (item.repeatOption) {
             RepeatOption.DAILY -> true
             RepeatOption.WEEKLY -> java.time.temporal.ChronoUnit.DAYS.between(first, day) % 7L == 0L
-            RepeatOption.MONTHLY -> (0L..1200L).any { first.plusMonths(it) == day }
+            RepeatOption.MONTHLY -> {
+                val months = java.time.temporal.ChronoUnit.MONTHS.between(
+                    java.time.YearMonth.from(first), java.time.YearMonth.from(day))
+                months >= 0L && first.plusMonths(months) == day
+            }
             else -> first == day
         }
     }
@@ -203,8 +209,18 @@ internal object ProductivityEngine {
         val overdue = tasks.count { !it.isArchived && !it.isCompleted && !TaskReminderSchedule.repeating(it) &&
             runCatching { LocalDate.parse(it.dueDate).isBefore(today) }.getOrDefault(false) }
         val oldest = today.minusDays(6).atStartOfDay(ZoneId.systemDefault()).toInstant().toEpochMilli()
+        val unacknowledgedScheduledReminders = days.sumOf { day ->
+            tasks.count { task ->
+                task.reminderEnabled && !task.isArchived &&
+                TaskReminderSchedule.isScheduledFor(task, day) &&
+                !TaskReminderSchedule.completedFor(task, day) &&
+                runCatching {
+                    day.atTime(LocalTime.parse(task.reminderTime)).isBefore(LocalDateTime.now())
+                }.getOrDefault(false)
+            }
+        }
         return ProductivitySummary(statuses.count { it }, statuses.size,
             studies.filter { it.date in weekDates && it.isCompleted }.sumOf { it.focusMinutes }, overdue,
-            records.count { it.state == "MISSED" && it.timestampMs >= oldest })
+            unacknowledgedScheduledReminders + records.count { it.state == "MISSED" && it.timestampMs >= oldest })
     }
 }

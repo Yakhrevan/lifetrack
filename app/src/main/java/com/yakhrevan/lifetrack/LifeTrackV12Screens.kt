@@ -2,6 +2,8 @@ package com.yakhrevan.lifetrack
 
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -148,7 +150,8 @@ fun NotificationInboxScreen(
         contentPadding = PaddingValues(bottom = 90.dp)) {
         item { V12Header("Notification Center", "Upcoming, missed, delivered and snoozed reminders", onBack) }
         item {
-            Row(horizontalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.fillMaxWidth()) {
+            Row(horizontalArrangement = Arrangement.spacedBy(6.dp),
+                modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState())) {
                 listOf("All", "Missed", "Snoozed", "Upcoming").forEach { option ->
                     FilterChip(selected = option == filter, onClick = { filter = option },
                         label = { Text(option, fontSize = 11.sp) })
@@ -191,7 +194,7 @@ fun ProductivityInsightsScreen(modifier: Modifier = Modifier, onBack: () -> Unit
         }
         item { V12EntryCard("Study focus", "${summary.studyMinutes} minutes in completed sessions", true, onClick = onOpenPlanner) }
         item { V12EntryCard("Overdue tasks", "${summary.overdue} incomplete tasks", summary.overdue == 0, onClick = onOpenPlanner) }
-        item { V12EntryCard("Missed reminder entries", "${summary.missedAlerts} logged in last 7 days", summary.missedAlerts == 0, onClick = onOpenPlanner) }
+        item { V12EntryCard("Past-due reminder items", "${summary.missedAlerts} unfinished scheduled reminders in last 7 days", summary.missedAlerts == 0, onClick = onOpenPlanner) }
         item { Text("Scores use saved tasks, habits and sessions; no fabricated data or AI predictions.",
             style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
         item { Button(onClick = onOpenPlanner, modifier = Modifier.fillMaxWidth()) {

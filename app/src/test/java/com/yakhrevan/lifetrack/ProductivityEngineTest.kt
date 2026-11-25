@@ -38,4 +38,14 @@ class ProductivityEngineTest {
         assertEquals(1, actual.planned)
         assertEquals(100, actual.completionPercent)
     }
+
+    @Test fun unfinishedPastReminderCountsWithoutSyntheticHistory() {
+        val today = LocalDate.now()
+        val overdue = TaskItem(title = "Still open", dueDate = today.minusDays(1).toString(),
+            reminderEnabled = true, reminderTime = "09:00")
+        val result = ProductivityEngine.weeklySummary(today, listOf(overdue), emptyList(),
+            emptyList(), emptyList(), emptyList())
+        assertEquals(1, result.missedAlerts)
+        assertEquals(1, result.overdue)
+    }
 }

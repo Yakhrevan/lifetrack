@@ -172,7 +172,9 @@ class MainActivity:ComponentActivity(){
     // Keep reminder work durable and rebuild all categories from saved repositories.
     LaunchedEffect(context) {
         ReminderReconciliationScheduler.ensureScheduled(context)
-        LifeTrackWidgetUpdater.updateAll(context)
+        kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+            LifeTrackWidgetUpdater.updateAll(context)
+        }
     }
 
     // Release cleanup: remove previously seeded synthetic records once and never seed samples again.

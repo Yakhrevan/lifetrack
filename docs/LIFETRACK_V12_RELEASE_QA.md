@@ -23,6 +23,7 @@ Branch: `feature/lifetrack-v12-reliability-productivity`
 
 - **Local snapshot ≠ cloud sync.** The Google-account chooser is not a genuine cloud authentication or multi-device conflict resolution system. Selecting a Google Drive folder uses the system document picker and provider; no Google credentials enter LifeTrack.
 - An off-device backup is configured only after the user selects a writable folder. Otherwise backups remain local and can be lost on uninstall or device loss.
+- Exported JSON is not end-to-end encrypted by LifeTrack. Select a private Drive/Files location under your control and avoid sharing its link publicly.
 - On restore, old entries/settings should remain on errors; rerun reminder reconciliation and refresh widgets. A power loss midway through SharedPreferences writes is not a database transaction; consider Room with migrations for a future release.
 - Existing data, preference keys and application ID are preserved; `versionCode` increases 3→4 for upgrade installation.
 

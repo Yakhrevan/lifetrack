@@ -638,7 +638,8 @@ fun NotificationSettingsScreen(
                             checked = settings.preciseTaskAlarms,
                             onCheckedChange = { enabled ->
                                 onUpdate(settings.copy(preciseTaskAlarms = enabled))
-                                if (enabled && !PreciseTaskAlarmScheduler.isAvailable(context)) {
+                                if (enabled && android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.S &&
+                                    !PreciseTaskAlarmScheduler.isAvailable(context)) {
                                     runCatching {
                                         context.startActivity(android.content.Intent(
                                             android.provider.Settings.ACTION_REQUEST_SCHEDULE_EXACT_ALARM,

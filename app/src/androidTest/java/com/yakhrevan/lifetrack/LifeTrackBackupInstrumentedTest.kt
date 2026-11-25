@@ -1,6 +1,7 @@
 package com.yakhrevan.lifetrack
 
 import android.content.Context
+import android.appwidget.AppWidgetManager
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import org.junit.Assert.assertEquals
@@ -11,6 +12,15 @@ import org.junit.runner.RunWith
 /** Runs against the isolated CI emulator, never a user's actual phone. */
 @RunWith(AndroidJUnit4::class)
 class LifeTrackBackupInstrumentedTest {
+    @Test fun allThreeHomeWidgetProvidersAreInstalled() {
+        val context = InstrumentationRegistry.getInstrumentation().targetContext
+        val providers = AppWidgetManager.getInstance(context).installedProviders
+            .map { it.provider.className }.toSet()
+        assertTrue(providers.any { it.endsWith(".TaskCountWidget") })
+        assertTrue(providers.any { it.endsWith(".WaterProgressWidget") })
+        assertTrue(providers.any { it.endsWith(".HabitStreakWidget") })
+    }
+
     @Test fun fullBackupIncludesNewCalendarWaterStudyAndAlertModules() {
         val context = InstrumentationRegistry.getInstrumentation().targetContext
         val names = listOf("lifetrack_calendar", "lifetrack_water_v2", "lifetrack_study_v2",
