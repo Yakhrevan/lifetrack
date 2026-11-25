@@ -80,12 +80,13 @@ internal fun isValidIsoDateRange(start: String, end: String): Boolean = runCatch
 data class NotificationTarget(val page: String, val itemId: String?, val requestId: Long = System.nanoTime())
 
 private fun parseNotificationTarget(intent: Intent?): NotificationTarget? {
-    val page = intent?.getStringExtra("navigate_to") ?: intent?.getStringExtra("open_page") ?: return null
+    val source = intent ?: return null
+    val page = source.getStringExtra("navigate_to") ?: source.getStringExtra("open_page") ?: return null
     if (page !in setOf("Tasks", "Habits", "Routines", "Calendar", "Water", "Study")) return null
     val itemId = when (page) {
-        "Tasks" -> intent.getStringExtra("task_id")
-        "Calendar" -> intent.getStringExtra("calendar_event_id")
-        else -> intent.getStringExtra("item_id")
+        "Tasks" -> source.getStringExtra("task_id")
+        "Calendar" -> source.getStringExtra("calendar_event_id")
+        else -> source.getStringExtra("item_id")
     }
     return NotificationTarget(page, itemId)
 }
