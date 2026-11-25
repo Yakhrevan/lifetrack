@@ -39,6 +39,24 @@ object NotificationPolicy {
         return NotificationManagerCompat.from(context).areNotificationsEnabled()
     }
 
+    /** Switching a category off also dismisses notifications already visible for it. */
+    fun onSettingsChanged(context: Context, old: AppSettings, updated: AppSettings) {
+        val manager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+        if (!updated.notificationsEnabled) {
+            manager.cancelAll()
+            return
+        }
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return
+        val disabled = Module.entries.filter { enabled(old, it) && !enabled(updated, it) }
+            .map { "lifetrack_${it.name.lowercase()}_v2_" }
+        if (disabled.isEmpty()) return
+        manager.activeNotifications.forEach { entry ->
+            if (disabled.any { entry.notification.channelId?.startsWith(it) == true }) {
+                manager.cancel(entry.tag, entry.id)
+            }
+        }
+    }
+
     /** A quiet-hours notification remains visible, but its own channel has neither sound nor vibration. */
     fun inQuietHours(settings: AppSettings, current: LocalTime = LocalTime.now()): Boolean {
         if (!settings.quietHoursEnabled) return false
@@ -64,7 +82,8 @@ object NotificationPolicy {
             if (it == "system" || it == "silent") it else "chime"
         }
         // v2 channel IDs intentionally migrate from the immutable old channel sound settings.
-        val channelId = "lifetrack_${module.name.lowercase()}_v2_$sound"
+        val importanceTier = if (importance >= NotificationManager.IMPORTANCE_HIGH) "high" else "normal"
+        val channelId = "lifetrack_${module.name.lowercase()}_v2_${sound}_$importanceTier"
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             val manager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
             val attributes = AudioAttributes.Builder()
@@ -86,7 +105,8 @@ object NotificationPolicy {
         }
         return NotificationCompat.Builder(context, channelId)
             .setSmallIcon(R.drawable.ic_lifetrack_notification)
-            .setLargeIcon(BitmapFactory.decodeResource(context.resources, R.drawable.ic_lifetrack_logo))
+            .setLargeIcon(BitmapFactory.decodeResource(context.resources, R.drawable.ic_lifetrack_logo,
+                BitmapFactory.Options().apply { inSampleSize = 4 }))
             .setColor(android.graphics.Color.rgb(139, 92, 246))
             .setPriority(if (importance >= NotificationManager.IMPORTANCE_HIGH) NotificationCompat.PRIORITY_HIGH else NotificationCompat.PRIORITY_DEFAULT)
             .setAutoCancel(true)

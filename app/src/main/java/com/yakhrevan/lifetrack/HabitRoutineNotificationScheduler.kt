@@ -137,7 +137,7 @@ class HabitRoutineReminderWorker(
 object HabitRoutineNotificationScheduler {
 
     fun reconcileHabitReminders(context: Context, habit: Habit) {
-        cancelHabitReminders(context, habit)
+        cancelHabitReminders(context, habit, cancelSnoozes = habit.isPaused || habit.isArchived)
 
         if (habit.isPaused || habit.isArchived) return
 
@@ -187,13 +187,13 @@ object HabitRoutineNotificationScheduler {
         )
     }
 
-    fun cancelHabitReminders(context: Context, habit: Habit) {
+    fun cancelHabitReminders(context: Context, habit: Habit, cancelSnoozes: Boolean = true) {
         val workManager = WorkManager.getInstance(context)
         val prefs = context.getSharedPreferences("lifetrack_reminder_schedule_ids", Context.MODE_PRIVATE)
         val scheduledIds = prefs.getStringSet("habit_${habit.id}", emptySet()).orEmpty().toSet()
         scheduledIds.forEach {
             workManager.cancelUniqueWork("habit_reminder_${habit.id}_$it")
-            workManager.cancelUniqueWork("snooze_habit_${habit.id}_$it")
+            if (cancelSnoozes) workManager.cancelUniqueWork("snooze_habit_${habit.id}_$it")
         }
         prefs.edit().remove("habit_${habit.id}").apply()
         // Cancel names used by older releases during the migration to stable reminder IDs.
@@ -201,7 +201,7 @@ object HabitRoutineNotificationScheduler {
     }
 
     fun reconcileRoutineReminders(context: Context, routine: Routine) {
-        cancelRoutineReminders(context, routine)
+        cancelRoutineReminders(context, routine, cancelSnoozes = routine.isPaused || routine.isArchived || !routine.reminderEnabled)
         if (routine.isPaused || routine.isArchived || !routine.reminderEnabled) return
         val parsedTime = runCatching { LocalTime.parse(routine.reminderTime) }.getOrNull() ?: return
         val now = LocalDateTime.now()
@@ -232,9 +232,9 @@ object HabitRoutineNotificationScheduler {
         )
     }
 
-    fun cancelRoutineReminders(context: Context, routine: Routine) {
+    fun cancelRoutineReminders(context: Context, routine: Routine, cancelSnoozes: Boolean = true) {
         WorkManager.getInstance(context).cancelUniqueWork("routine_reminder_${routine.id}")
-        WorkManager.getInstance(context).cancelUniqueWork("snooze_routine_${routine.id}_")
+        if (cancelSnoozes) WorkManager.getInstance(context).cancelUniqueWork("snooze_routine_${routine.id}_")
     }
 
     fun snoozeReminder(context: Context, itemId: String, title: String, message: String, minutes: Int = 10, type: String = "habit", notificationId: Int = "${type}_${itemId}_".hashCode(), reminderId: String = "") {

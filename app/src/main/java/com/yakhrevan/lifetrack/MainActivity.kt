@@ -345,6 +345,16 @@ class MainActivity:ComponentActivity(){
     var requestedEventId by remember { mutableStateOf<String?>(null) }
     var quickCreateTaskToken by remember { mutableIntStateOf(0) }
     var quickCreateEventToken by remember { mutableIntStateOf(0) }
+    LaunchedEffect(page) {
+        if (page != "Tasks") {
+            requestedTaskId = null
+            quickCreateTaskToken = 0
+        }
+        if (page != "Calendar") {
+            requestedEventId = null
+            quickCreateEventToken = 0
+        }
+    }
     var moneyInitialQuickAddType by remember { mutableStateOf<String?>(null) }
     var add by remember { mutableStateOf(false) }
     var cat by remember { mutableStateOf("Study") }

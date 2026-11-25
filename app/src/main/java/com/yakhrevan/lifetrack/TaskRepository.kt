@@ -28,6 +28,7 @@ data class TaskItem(
     val dueTime: String? = null, // HH:mm
     val isCompleted: Boolean = false,
     val completedAtMs: Long? = null,
+    val completedDates: Set<String> = emptySet(), // Per-occurrence completion for repeating tasks
     val subtasks: List<SubtaskItem> = emptyList(),
     val category: String = "",
     val iconName: String = "clipboard",
@@ -67,7 +68,17 @@ object TaskRepository {
     fun getTasks(context: Context, includeArchived: Boolean = false): List<TaskItem> {
         val raw = prefs(context).getString(KEY_TASKS, null)
         val tasks = if (raw.isNullOrBlank()) emptyList() else decodeTasks(raw)
-        return if (includeArchived) tasks else tasks.filterNot { it.isArchived }
+        val today = LocalDate.now()
+        val current = tasks.map { task ->
+            if (TaskReminderSchedule.repeating(task)) {
+                val historical = task.completedAtMs?.takeIf { task.isCompleted }?.let {
+                    java.time.Instant.ofEpochMilli(it).atZone(java.time.ZoneId.systemDefault()).toLocalDate().toString()
+                }
+                val dates = if (historical == null) task.completedDates else task.completedDates + historical
+                task.copy(completedDates = dates, isCompleted = today.toString() in dates)
+            } else task
+        }
+        return if (includeArchived) current else current.filterNot { it.isArchived }
     }
 
     fun getTaskById(context: Context, id: String): TaskItem? {
@@ -93,7 +104,11 @@ object TaskRepository {
             !TaskReminderSchedule.completedFor(task, LocalDate.now()) else !task.isCompleted
         val updated = task.copy(
             isCompleted = newStatus,
-            completedAtMs = if (newStatus) System.currentTimeMillis() else null
+            completedAtMs = if (newStatus) System.currentTimeMillis() else null,
+            completedDates = if (TaskReminderSchedule.repeating(task)) {
+                if (newStatus) task.completedDates + LocalDate.now().toString()
+                else task.completedDates - LocalDate.now().toString()
+            } else task.completedDates
         )
         saveTask(context, updated)
         return newStatus
@@ -122,6 +137,7 @@ object TaskRepository {
             title = "${existing.title} (Copy)",
             isCompleted = false,
             completedAtMs = null,
+            completedDates = emptySet(),
             subtasks = existing.subtasks.map { it.copy(id = UUID.randomUUID().toString(), isCompleted = false) },
             createdAtMs = System.currentTimeMillis()
         )
@@ -222,6 +238,7 @@ object TaskRepository {
             obj.put("dueDate", t.dueDate)
             if (t.dueTime != null) obj.put("dueTime", t.dueTime)
             obj.put("isCompleted", t.isCompleted)
+            obj.put("completedDates", JSONArray(t.completedDates.sorted()))
             if (t.completedAtMs != null) obj.put("completedAtMs", t.completedAtMs)
             obj.put("category", t.category)
             obj.put("iconName", t.iconName)
@@ -271,6 +288,9 @@ object TaskRepository {
 
             val rDaysArr = obj.optJSONArray("reminderDays")
             val rDays = if (rDaysArr != null) (0 until rDaysArr.length()).map { rDaysArr.optInt(it) }.toSet() else emptySet()
+            val completedArr = obj.optJSONArray("completedDates")
+            val completedDates = if (completedArr != null) (0 until completedArr.length())
+                .mapNotNull { completedArr.optString(it).takeIf { value -> value.isNotBlank() } }.toSet() else emptySet()
 
             list.add(
                 TaskItem(
@@ -283,6 +303,7 @@ object TaskRepository {
                     dueTime = if (obj.has("dueTime")) obj.optString("dueTime") else null,
                     isCompleted = obj.optBoolean("isCompleted", false),
                     completedAtMs = if (obj.has("completedAtMs")) obj.optLong("completedAtMs") else null,
+                    completedDates = completedDates,
                     subtasks = subtasks,
                     category = obj.optString("category", ""),
                     iconName = obj.optString("iconName", "clipboard"),

@@ -257,7 +257,7 @@ object CalendarStorage {
                         date = dateStr,
                         startTime = task.dueTime.orEmpty(),
                         endTime = "",
-                        isCompleted = task.isCompleted,
+                        isCompleted = TaskReminderSchedule.completedFor(task, day),
                         countOrDuration = if (task.subtasks.isNotEmpty()) "${task.subtasks.count { it.isCompleted }}/${task.subtasks.size}" else ""
                     )
                 )

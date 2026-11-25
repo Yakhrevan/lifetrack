@@ -75,6 +75,7 @@ fun SettingsScreen(
     var settings by remember { mutableStateOf(UserProfileRepository.getSettings(context)) }
 
     fun updateSettings(newSettings: AppSettings) {
+        NotificationPolicy.onSettingsChanged(context, settings, newSettings)
         UserProfileRepository.saveSettings(context, newSettings)
         settings = newSettings
         val resolvedSettings = if (newSettings.themeMode == "System") {

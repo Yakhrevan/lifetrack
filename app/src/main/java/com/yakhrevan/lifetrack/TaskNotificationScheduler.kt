@@ -116,7 +116,10 @@ class TaskReminderWorker(
 object TaskNotificationScheduler {
 
     fun reconcileTaskReminder(context: Context, task: TaskItem) {
-        cancelTaskReminder(context, task)
+        WorkManager.getInstance(context).cancelUniqueWork("task_reminder_${task.id}")
+        if (task.isArchived || !task.reminderEnabled || (!TaskReminderSchedule.repeating(task) && task.isCompleted)) {
+            WorkManager.getInstance(context).cancelUniqueWork("snooze_task_${task.id}")
+        }
         enqueueNext(context, task, LocalDateTime.now(), ExistingWorkPolicy.REPLACE)
     }
 
@@ -214,8 +217,9 @@ object TaskReminderSchedule {
     }
 
     fun completedFor(task: TaskItem, date: LocalDate): Boolean {
+        if (!repeating(task)) return task.isCompleted
+        if (date.toString() in task.completedDates) return true
         if (!task.isCompleted) return false
-        if (!repeating(task)) return true
         val completedOn = task.completedAtMs?.let {
             java.time.Instant.ofEpochMilli(it).atZone(ZoneId.systemDefault()).toLocalDate()
         }
