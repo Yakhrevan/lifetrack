@@ -4,6 +4,9 @@ Base: `feature/lifetrack-notifications-v2` (`8d3a14fdcea61e42fa3fab30ba2b377eade
 
 Branch: `feature/lifetrack-v12-reliability-productivity`
 
+Phase 4A reliability follow-up: `docs/LIFETRACK_PHASE4A_QA.md` on
+`feature/lifetrack-v12-phase4a-qa` (no changes merged to `main`).
+
 **Important:** This branch is intended for verification and APK testing. It has not been merged into `main`.
 
 ## Improvements and acceptance

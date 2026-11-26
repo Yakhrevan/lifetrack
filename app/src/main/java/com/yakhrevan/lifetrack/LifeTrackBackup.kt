@@ -152,7 +152,9 @@ internal object LifeTrackBackup {
                     }
                 }
             }
-            editor.apply()
+            // A restore must detect disk write failure so restoreSafely can
+            // attempt rollback instead of reporting a false success.
+            check(editor.commit()) { "Could not restore settings section '$fileName'." }
         }
     }
 

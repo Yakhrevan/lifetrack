@@ -227,7 +227,8 @@ object UserProfileRepository {
             hapticFeedback = prefs.getBoolean("haptic_feedback", true),
             soundEffects = prefs.getBoolean("sound_effects", false),
             autoSave = prefs.getBoolean("auto_save", true),
-            confirmBeforeDelete = prefs.getBoolean("confirm_before_delete", true),
+            confirmBeforeDelete = prefs.getBoolean("confirm_before_delete",
+                prefs.getBoolean("confirmBeforeDelete", true)),
             showTips = prefs.getBoolean("show_tips", true)
         )
     }
@@ -277,7 +278,7 @@ object UserProfileRepository {
             .putBoolean("haptic_feedback", settings.hapticFeedback)
             .putBoolean("sound_effects", settings.soundEffects)
             .putBoolean("auto_save", settings.autoSave)
-            .putBoolean("confirmBeforeDelete", settings.confirmBeforeDelete)
+            .putBoolean("confirm_before_delete", settings.confirmBeforeDelete)
             .putBoolean("show_tips", settings.showTips)
             .apply()
 

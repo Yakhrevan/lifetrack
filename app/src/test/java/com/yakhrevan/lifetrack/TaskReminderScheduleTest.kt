@@ -33,6 +33,12 @@ class TaskReminderScheduleTest {
         assertFalse(TaskReminderSchedule.isScheduledFor(schedule, LocalDate.parse("2026-03-28")))
     }
 
+    @Test fun monthlyReminderContinuesBeyondTenYears() {
+        val schedule = task("Monthly", "2015-01-31")
+        assertTrue(TaskReminderSchedule.isScheduledFor(schedule, LocalDate.parse("2030-02-28")))
+        assertFalse(TaskReminderSchedule.isScheduledFor(schedule, LocalDate.parse("2030-02-27")))
+    }
+
     @Test fun completionOnlySkipsItsOwnDayForRecurringTask() {
         val finishedOn = LocalDate.parse("2026-11-23").atStartOfDay(ZoneId.systemDefault()).toInstant().toEpochMilli()
         val schedule = task("Daily").copy(isCompleted = true, completedAtMs = finishedOn)

@@ -211,6 +211,7 @@ object TaskNotificationScheduler {
         val task = TaskRepository.getTaskById(context, taskId) ?: return
         if (task.isArchived || !task.reminderEnabled || task.reminderTime.isNullOrBlank()) return
         if (TaskReminderSchedule.completedFor(task, LocalDate.now())) return
+        val safeMinutes = minutes.coerceIn(5, 120)
         val data = Data.Builder()
             .putString(TaskReminderWorker.KEY_TASK_ID, taskId)
             .putString(TaskReminderWorker.KEY_TITLE, "Task: ${task.title}")
@@ -222,7 +223,7 @@ object TaskNotificationScheduler {
             .build()
 
         val request = OneTimeWorkRequestBuilder<TaskReminderWorker>()
-            .setInitialDelay(minutes.toLong(), TimeUnit.MINUTES)
+            .setInitialDelay(safeMinutes.toLong(), TimeUnit.MINUTES)
             .setInputData(data)
             .build()
 
@@ -232,7 +233,7 @@ object TaskNotificationScheduler {
             request
         )
         NotificationHistoryRepository.record(context, "Tasks", taskId, task.title, "SNOOZED",
-            System.currentTimeMillis() + minutes.coerceAtLeast(1) * 60_000L)
+            System.currentTimeMillis() + safeMinutes * 60_000L)
     }
 }
 
@@ -259,8 +260,11 @@ object TaskReminderSchedule {
             "Daily" -> true
             "Weekly" -> if (task.reminderDays.isNotEmpty()) date.dayOfWeek.value in task.reminderDays
                 else date.dayOfWeek == first.dayOfWeek
-            "Monthly" -> (0L..120L).asSequence().map { first.plusMonths(it) }
-                .takeWhile { !it.isAfter(date) }.any { it == date }
+            "Monthly" -> {
+                val months = java.time.temporal.ChronoUnit.MONTHS.between(
+                    java.time.YearMonth.from(first), java.time.YearMonth.from(date))
+                months >= 0 && first.plusMonths(months) == date
+            }
             else -> date == first
         }
     }

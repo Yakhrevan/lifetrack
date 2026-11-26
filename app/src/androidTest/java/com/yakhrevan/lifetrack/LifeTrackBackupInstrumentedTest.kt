@@ -12,6 +12,27 @@ import org.junit.runner.RunWith
 /** Runs against the isolated CI emulator, never a user's actual phone. */
 @RunWith(AndroidJUnit4::class)
 class LifeTrackBackupInstrumentedTest {
+    @Test fun restoringBackupRecoversChangedSettingsOnDevice() {
+        val context = InstrumentationRegistry.getInstrumentation().targetContext
+        val prefs = context.getSharedPreferences("lifetrack_profile", Context.MODE_PRIVATE)
+        val key = "phase4a_restore_probe"
+        val previous = prefs.getString(key, null)
+        try {
+            assertTrue(prefs.edit().putString(key, "before-backup").commit())
+            val json = LifeTrackBackup.encode(context, LifeTrackRepository(context).loadEntries())
+            val decoded = LifeTrackBackup.decode(json)
+            assertTrue(prefs.edit().putString(key, "changed-after-backup").commit())
+
+            LifeTrackBackup.restoreSafely(context, decoded)
+
+            assertEquals("before-backup", prefs.getString(key, null))
+        } finally {
+            val editor = prefs.edit()
+            if (previous == null) editor.remove(key) else editor.putString(key, previous)
+            assertTrue(editor.commit())
+        }
+    }
+
     @Test fun allThreeHomeWidgetProvidersAreInstalled() {
         val context = InstrumentationRegistry.getInstrumentation().targetContext
         val providers = AppWidgetManager.getInstance(context).installedProviders

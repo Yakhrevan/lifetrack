@@ -74,7 +74,9 @@ class ReminderReconciliationReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent?) {
         if (intent?.action !in RECONCILE_ACTIONS) return
 
+        // KEEP may retain a stale pending job after a clock or timezone change.
         ReminderReconciliationScheduler.ensureScheduled(context)
+        ReminderReconciliationScheduler.requestNow(context)
     }
 
     companion object {
