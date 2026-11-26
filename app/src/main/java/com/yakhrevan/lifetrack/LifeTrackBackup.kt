@@ -74,20 +74,19 @@ internal object LifeTrackBackup {
         return LifeTrackBackupData(entries, preferences)
     }
 
-    /** Validate first, then apply with a rollback snapshot if a write throws. */
+    /** Stage a disk-durable rollback before changing any module, so process death is recoverable. */
     fun restoreSafely(context: Context, backup: LifeTrackBackupData) {
         val repository = LifeTrackRepository(context)
-        val rollback = decode(encode(context, repository.loadEntries()))
+        val rollback = encode(context, repository.loadEntries())
+        RestoreSafetyJournal.stage(context, rollback)
         try {
-            repository.saveEntries(EntryCodec.newestFirst(EntryCodec.uniqueById(backup.entries)))
+            repository.replaceEntriesDurably(EntryCodec.newestFirst(EntryCodec.uniqueById(backup.entries)))
             restorePreferences(context, backup.preferences)
             ReminderReconciliationScheduler.requestNow(context)
+            RestoreSafetyJournal.complete(context)
         } catch (failure: Exception) {
-            runCatching {
-                repository.saveEntries(rollback.entries)
-                restorePreferences(context, rollback.preferences)
-                ReminderReconciliationScheduler.requestNow(context)
-            }.onFailure { failure.addSuppressed(it) }
+            runCatching { RestoreSafetyJournal.recoverIfNeeded(context) }
+                .onFailure { failure.addSuppressed(it) }
             throw failure
         }
     }

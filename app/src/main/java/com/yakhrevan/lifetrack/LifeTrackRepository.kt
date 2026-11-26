@@ -44,6 +44,15 @@ internal class LifeTrackRepository(context: Context) {
             .apply()
     }
 
+    /** Restore/rollback writes must reach storage before the recovery journal is removed. */
+    fun replaceEntriesDurably(entries: List<LogEntry>) {
+        val safeEntries = EntryCodec.uniqueById(entries)
+        check(preferences.edit()
+            .putString(ENTRIES_KEY, EntryCodec.encode(safeEntries))
+            .putInt(SCHEMA_KEY, SCHEMA_VERSION)
+            .commit()) { "Could not durably save tracker entries." }
+    }
+
     /** Clearing keeps one recoverable copy so the action is never fully silent. */
     fun clearEntries() {
         backupRaw(preferences.getString(ENTRIES_KEY, null))

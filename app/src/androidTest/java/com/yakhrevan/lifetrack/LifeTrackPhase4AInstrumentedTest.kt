@@ -1,6 +1,7 @@
 package com.yakhrevan.lifetrack
 
 import android.content.Intent
+import androidx.test.core.app.ActivityScenario
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import androidx.work.ExistingWorkPolicy
@@ -17,6 +18,40 @@ import java.util.concurrent.TimeUnit
 /** System Intent and persisted-settings checks on an isolated Android emulator. */
 @RunWith(AndroidJUnit4::class)
 class LifeTrackPhase4AInstrumentedTest {
+    @Test fun appLaunchPreservesPersonalRecordsContainingLegacyDemoText() {
+        val context = InstrumentationRegistry.getInstrumentation().targetContext
+        val repository = LifeTrackRepository(context)
+        val beforeEntries = repository.loadEntries()
+        val cleanupPrefs = context.getSharedPreferences("lifetrack_demo_seed_v2", android.content.Context.MODE_PRIVATE)
+        val cleanupBefore = cleanupPrefs.getBoolean("release_cleanup_v2", false)
+        val tracker = LogEntry("Study", "Personal research", "50", "2026-11-26",
+            "These are my DEMO DATA experiment results", id = "phase4c-personal-tracker")
+        val task = TaskItem(id = "phase4c-personal-task", title = "My own task",
+            description = "DEMO DATA is a name used in this task")
+        val note = NoteItem(id = "phase4c-personal-note", title = "My notes",
+            content = "I wrote DEMO DATA here myself")
+        try {
+            assertTrue(cleanupPrefs.edit().putBoolean("release_cleanup_v2", false).commit())
+            repository.replaceEntriesDurably(beforeEntries + tracker)
+            TaskRepository.saveTask(context, task)
+            NoteRepository.saveNote(context, note)
+            ActivityScenario.launch(MainActivity::class.java).use {
+                InstrumentationRegistry.getInstrumentation().waitForIdleSync()
+                // Wait for lifecycle coroutines which used to delete these records.
+                Thread.sleep(1000)
+                InstrumentationRegistry.getInstrumentation().waitForIdleSync()
+            }
+            assertTrue(repository.loadEntries().any { it.id == tracker.id })
+            assertEquals(task.description, TaskRepository.getTaskById(context, task.id)?.description)
+            assertEquals(note.content, NoteRepository.getNoteById(context, note.id)?.content)
+        } finally {
+            repository.replaceEntriesDurably(beforeEntries)
+            TaskRepository.deleteTask(context, task.id)
+            NoteRepository.deleteNote(context, note.id)
+            assertTrue(cleanupPrefs.edit().putBoolean("release_cleanup_v2", cleanupBefore).commit())
+        }
+    }
+
     @Test fun backupPassphraseIsProtectedByAndroidKeystoreAndRestorableOnSameDevice() {
         val context = InstrumentationRegistry.getInstrumentation().targetContext
         val previous = BackupPassphraseVault.unlock(context)

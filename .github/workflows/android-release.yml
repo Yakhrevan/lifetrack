@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - feature/lifetrack-v12-phase4b-release
+      - feature/lifetrack-v12-phase4c-data-safety
   workflow_dispatch:
     inputs:
       expected_signer_sha256:

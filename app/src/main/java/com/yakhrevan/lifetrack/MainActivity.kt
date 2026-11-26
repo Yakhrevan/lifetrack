@@ -100,6 +100,18 @@ class MainActivity:ComponentActivity(){
     override fun onCreate(savedInstanceState:Bundle?){
         installSplashScreen()
         super.onCreate(savedInstanceState)
+        // Complete or roll back an interrupted restore before *any* repository is read.
+        // Never let a partially restored dataset be edited and later overwritten.
+        val recovery = runCatching { RestoreSafetyJournal.recoverIfNeeded(this) }
+        if (recovery.isFailure) {
+            android.app.AlertDialog.Builder(this)
+                .setTitle("LifeTrack recovery needs attention")
+                .setMessage("An interrupted backup restore could not be recovered. Your app data has not been cleared. Close LifeTrack and retry; do not uninstall the app.")
+                .setCancelable(false)
+                .setPositiveButton("Close") { _, _ -> finish() }
+                .show()
+            return
+        }
         notificationTarget = parseNotificationTarget(intent)
         window.statusBarColor = android.graphics.Color.rgb(248,250,255)
         window.navigationBarColor = android.graphics.Color.rgb(248,250,255)
@@ -180,38 +192,9 @@ class MainActivity:ComponentActivity(){
         }
     }
 
-    // Release cleanup: remove previously seeded synthetic records once and never seed samples again.
-    // User-created records are preserved unless they carry the explicit DEMO DATA marker.
-    LaunchedEffect(context) {
-        kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
-            val cleanupPrefs = context.getSharedPreferences("lifetrack_demo_seed_v2", Context.MODE_PRIVATE)
-            if (!cleanupPrefs.getBoolean("release_cleanup_v2", false)) {
-                HabitRoutineRepository.removeLegacyDemoRecords(context)
-                val savedEntries = repository.loadEntries()
-                val personalEntries = savedEntries.filterNot { it.note.contains("DEMO DATA", ignoreCase = true) }
-                if (personalEntries.size != savedEntries.size) repository.saveEntries(personalEntries)
-
-                val waterEntries = WaterRepository.loadEntries(context, personalEntries)
-                val personalWaterEntries = waterEntries.filterNot { it.note.contains("DEMO DATA", ignoreCase = true) }
-                if (personalWaterEntries.size != waterEntries.size) WaterRepository.saveEntries(context, personalWaterEntries)
-
-                NoteRepository.getNotes(context, includeArchived = true)
-                    .filter { it.content.contains("DEMO DATA", ignoreCase = true) }
-                    .forEach { NoteRepository.deleteNote(context, it.id) }
-                TaskRepository.getTasks(context, includeArchived = true)
-                    .filter { it.description.contains("DEMO DATA", ignoreCase = true) }
-                    .forEach { TaskRepository.deleteTask(context, it.id) }
-                StudyRepository.loadSessions(context)
-                    .filter { it.notes.contains("DEMO DATA", ignoreCase = true) }
-                    .forEach { StudyRepository.deleteSession(context, it.id) }
-                cleanupPrefs.edit().putBoolean("release_cleanup_v2", true).apply()
-            }
-            profilePrefs.edit().putBoolean("demo_mode", false).putBoolean("demo_seeded", true).apply()
-        }
-        // Refresh the in-memory dashboard state after persisted sample cleanup completes.
-        logs = repository.loadEntries()
-        appRefreshToken++
-    }
+    // No automatic deletion or rewriting of saved records on launch. Older demo
+    // records have random IDs, and text/name matching can also match real user
+    // notes, tasks, habits and money records. Removal must be user-initiated.
     LaunchedEffect(context) {
         MoneyCategory.load(context)
         // Optional update checks must never prevent normal app startup.

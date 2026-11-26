@@ -9,6 +9,7 @@ on:
       - feature/lifetrack-v12-reliability-productivity
       - feature/lifetrack-v12-phase4a-qa
       - feature/lifetrack-v12-phase4b-release
+      - feature/lifetrack-v12-phase4c-data-safety
   pull_request:
     branches:
       - main
