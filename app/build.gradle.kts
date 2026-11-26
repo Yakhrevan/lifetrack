@@ -2,6 +2,12 @@ plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.android")
 }
+
+val releaseStorePath = providers.environmentVariable("LIFETRACK_RELEASE_KEYSTORE_PATH").orNull
+val releaseStorePassword = providers.environmentVariable("LIFETRACK_KEYSTORE_PASSWORD").orNull
+val releaseAlias = providers.environmentVariable("LIFETRACK_KEY_ALIAS").orNull
+val releaseKeyPassword = providers.environmentVariable("LIFETRACK_KEY_PASSWORD").orNull
+
 android {
     namespace = "com.yakhrevan.lifetrack"
     compileSdk = 35
@@ -9,8 +15,8 @@ android {
         applicationId = "com.yakhrevan.lifetrack"
         minSdk = 26
         targetSdk = 35
-        versionCode = 4
-        versionName = "1.2.0"
+        versionCode = 5
+        versionName = "1.2.1"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
     buildFeatures { compose = true }
@@ -20,6 +26,18 @@ android {
         targetCompatibility = JavaVersion.VERSION_17
     }
     kotlinOptions { jvmTarget = "17" }
+    // Debug builds never require secrets. Release signing is configured only
+    // when the isolated CI signing job provides all four inputs at runtime.
+    if (listOf(releaseStorePath, releaseStorePassword, releaseAlias, releaseKeyPassword)
+            .all { !it.isNullOrBlank() }) {
+        signingConfigs.create("secureRelease") {
+            storeFile = file(requireNotNull(releaseStorePath))
+            storePassword = releaseStorePassword
+            keyAlias = releaseAlias
+            keyPassword = releaseKeyPassword
+        }
+        buildTypes.getByName("release").signingConfig = signingConfigs.getByName("secureRelease")
+    }
 }
 dependencies {
     implementation("androidx.core:core-ktx:1.15.0")

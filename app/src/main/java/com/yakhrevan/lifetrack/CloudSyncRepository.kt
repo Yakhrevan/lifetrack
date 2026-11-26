@@ -269,6 +269,14 @@ object CloudSyncRepository {
             val backupJson = LifeTrackBackup.encode(context, logs)
             LifeTrackBackup.decode(backupJson)
 
+            // Never silently export plaintext to a previously selected Drive folder.
+            // If the device-bound vault is unavailable, ask for setup again.
+            if (OffDeviceBackupStore.isConfigured(context)) {
+                require(BackupPassphraseVault.unlock(context) != null) {
+                    "Encrypted off-device backup needs its passphrase configured again."
+                }
+            }
+
             // Save to app local snapshots directory
             val backupDir = File(context.filesDir, "backups").apply { if (!exists()) mkdirs() }
             val snapshotId = UUID.randomUUID().toString()

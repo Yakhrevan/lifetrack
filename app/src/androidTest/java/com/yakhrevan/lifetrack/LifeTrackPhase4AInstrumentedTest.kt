@@ -17,6 +17,31 @@ import java.util.concurrent.TimeUnit
 /** System Intent and persisted-settings checks on an isolated Android emulator. */
 @RunWith(AndroidJUnit4::class)
 class LifeTrackPhase4AInstrumentedTest {
+    @Test fun backupPassphraseIsProtectedByAndroidKeystoreAndRestorableOnSameDevice() {
+        val context = InstrumentationRegistry.getInstrumentation().targetContext
+        val previous = BackupPassphraseVault.unlock(context)
+        val secret = "phase4b-device-secret-2026"
+        try {
+            BackupPassphraseVault.remember(context, secret)
+            assertTrue(BackupPassphraseVault.isConfigured(context))
+            assertEquals(secret, BackupPassphraseVault.unlock(context))
+            val prefs = context.getSharedPreferences("lifetrack_backup_vault_v1", android.content.Context.MODE_PRIVATE)
+            assertFalse(prefs.all.values.any { it.toString().contains(secret) })
+            val backup = LifeTrackBackup.encode(context, LifeTrackRepository(context).loadEntries())
+            assertEquals(backup, PortableBackupCrypto.decrypt(PortableBackupCrypto.encrypt(backup, secret), secret))
+        } finally {
+            if (previous != null) BackupPassphraseVault.remember(context, previous)
+            else BackupPassphraseVault.forget(context)
+        }
+    }
+
+    @Test fun packageAndVersionSupportInPlaceUpgrade() {
+        val context = InstrumentationRegistry.getInstrumentation().targetContext
+        assertEquals("com.yakhrevan.lifetrack", context.packageName)
+        val info = context.packageManager.getPackageInfo(context.packageName, 0)
+        assertTrue(androidx.core.content.pm.PackageInfoCompat.getLongVersionCode(info) > 4L)
+    }
+
     @Test fun timezoneBroadcastReplacesStaleDelayedReconciliation() {
         val context = InstrumentationRegistry.getInstrumentation().targetContext
         val manager = WorkManager.getInstance(context)

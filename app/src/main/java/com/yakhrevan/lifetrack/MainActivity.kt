@@ -50,6 +50,7 @@ import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.yakhrevan.lifetrack.ui.theme.LifeTrackColors
@@ -57,6 +58,8 @@ import java.text.SimpleDateFormat
 import java.util.Calendar
 import java.util.Date
 import java.util.Locale
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 private val Navy get() = LifeTrackColors.Background
 private val Panel get() = LifeTrackColors.Surface
@@ -391,40 +394,61 @@ class MainActivity:ComponentActivity(){
     var confirmClear by remember { mutableStateOf(false) }
     var pendingRestore by remember { mutableStateOf<LifeTrackBackupData?>(null) }
     var backupMessage by remember { mutableStateOf<String?>(null) }
+    var showManualEncryptedExport by remember { mutableStateOf(false) }
+    var manualBackupPassphrase by remember { mutableStateOf<String?>(null) }
+    var pendingEncryptedRestore by remember { mutableStateOf<String?>(null) }
+    val backupScope = rememberCoroutineScope()
     val createBackupLauncher = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/json")) { uri ->
         if (uri != null) {
-            runCatching {
-                val output = context.contentResolver.openOutputStream(uri) ?: error("Unable to create the backup file.")
-                output.bufferedWriter().use { it.write(LifeTrackBackup.encode(context, logs)) }
-            }.onSuccess {
-                backupMessage = "Full LifeTrack backup saved successfully."
-            }.onFailure { error ->
-                backupMessage = "Backup could not be saved: ${error.message ?: "storage error"}"
+            val passphrase = manualBackupPassphrase
+            manualBackupPassphrase = null
+            val snapshotEntries = logs.toList()
+            backupScope.launch {
+                val result = withContext(kotlinx.coroutines.Dispatchers.IO) { runCatching {
+                    val password = requireNotNull(passphrase) { "Backup passphrase was not provided." }
+                    val sealed = PortableBackupCrypto.encrypt(LifeTrackBackup.encode(context, snapshotEntries), password)
+                    val output = context.contentResolver.openOutputStream(uri) ?: error("Unable to create the backup file.")
+                    output.bufferedWriter().use { it.write(sealed) }
+                    val verified = context.contentResolver.openInputStream(uri)?.bufferedReader()?.use { it.readText() }
+                        ?: error("Unable to verify the exported backup.")
+                    require(verified == sealed && PortableBackupCrypto.decrypt(verified, password).isNotBlank()) {
+                        "Encrypted export verification failed."
+                    }
+                } }
+                backupMessage = if (result.isSuccess) "Encrypted LifeTrack backup saved. Keep the passphrase safe."
+                else "Backup could not be saved: ${result.exceptionOrNull()?.message ?: "storage error"}"
             }
+        } else {
+            manualBackupPassphrase = null
         }
     }
     val restoreBackupLauncher = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
         if (uri != null) {
-            runCatching {
-                val raw = context.contentResolver.openInputStream(uri)?.bufferedReader()?.use { reader ->
-                    val result = StringBuilder()
-                    val buffer = CharArray(8192)
-                    while (true) {
-                        val count = reader.read(buffer)
-                        if (count < 0) break
-                        require(result.length + count <= 10 * 1024 * 1024) {
-                            "Backup file is too large to import safely (maximum 10 MB)."
+            backupScope.launch {
+                val imported = withContext(kotlinx.coroutines.Dispatchers.IO) { runCatching {
+                    val raw = context.contentResolver.openInputStream(uri)?.bufferedReader()?.use { reader ->
+                        val result = StringBuilder()
+                        val buffer = CharArray(8192)
+                        while (true) {
+                            val count = reader.read(buffer)
+                            if (count < 0) break
+                            require(result.length + count <= 16 * 1024 * 1024) {
+                                "Backup file is too large to import safely (maximum 16 MB encrypted)."
+                            }
+                            result.append(buffer, 0, count)
                         }
-                        result.append(buffer, 0, count)
-                    }
-                    result.toString()
-                } ?: error("Unable to read the selected backup file.")
-                LifeTrackBackup.decode(raw)
-            }.onSuccess { entries ->
-                pendingRestore = entries
-                backupMessage = null
-            }.onFailure { error ->
-                backupMessage = "Backup could not be read: ${error.message ?: "invalid JSON file"}"
+                        result.toString()
+                    } ?: error("Unable to read the selected backup file.")
+                    if (PortableBackupCrypto.isEncrypted(raw)) Pair(raw, null)
+                    else Pair(null, LifeTrackBackup.decode(raw)) // Legacy JSON remains restorable.
+                } }
+                imported.onSuccess { (encrypted, decoded) ->
+                    if (encrypted != null) pendingEncryptedRestore = encrypted
+                    if (decoded != null) pendingRestore = decoded
+                    backupMessage = null
+                }.onFailure { error ->
+                    backupMessage = "Backup could not be read: ${error.message ?: "invalid JSON file"}"
+                }
             }
         }
     }
@@ -1230,8 +1254,8 @@ class MainActivity:ComponentActivity(){
                 item { SettingRow(Icons.Default.Security,"Privacy","Data stays on this device unless you explicitly share an export or backup. Voice recognition may use your device's speech provider.") }
                 item { SettingRow(Icons.Default.Info,"About LifeTrack","Version $appVersion · Personal study, habits, hydration and money tracker",onClick={showAboutDialog=true}) }
                 item { SettingRow(Icons.Default.FileDownload,"Export CSV","Share a spreadsheet-friendly copy of your tracker entries.",onClick={exportCsv(context,logs)}) }
-                item { SettingRow(Icons.Default.Backup,"Export full backup","Save a restorable JSON file with entries, profile, goals, routines, focus settings, money categories and Webling preferences.",onClick={createBackupLauncher.launch("LifeTrack-backup.json")}) }
-                item { SettingRow(Icons.Default.Restore,"Restore full backup","Choose a LifeTrack JSON backup. Existing entries and supported settings are replaced only after confirmation.",onClick={restoreBackupLauncher.launch(arrayOf("*/*"))}) }
+                item { SettingRow(Icons.Default.Backup,"Export encrypted backup","Save a passphrase-protected, restorable backup of your entries and settings.",onClick={showManualEncryptedExport=true}) }
+                item { SettingRow(Icons.Default.Restore,"Restore full backup","Open encrypted LifeTrack backups (passphrase required) or older JSON backups. Restore needs confirmation.",onClick={restoreBackupLauncher.launch(arrayOf("*/*"))}) }
                 if (backupMessage != null) item { Text(backupMessage!!,color=Orange,fontSize=12.sp) }
                 item { Button(onClick={confirmClear=true},colors=ButtonDefaults.buttonColors(containerColor=Color(0xFF6A263B)),modifier=Modifier.fillMaxWidth()) { Text("Clear tracker entries") } }
             }
@@ -1295,6 +1319,86 @@ class MainActivity:ComponentActivity(){
         )
     }
 
+    if (showManualEncryptedExport) {
+        var passphrase by remember { mutableStateOf("") }
+        var confirmation by remember { mutableStateOf("") }
+        AlertDialog(
+            onDismissRequest = {
+                passphrase = ""; confirmation = ""; showManualEncryptedExport = false
+            },
+            title = { Text("Export encrypted backup") },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Text("Choose a passphrase (12+ characters). Keep it safe; without it the backup cannot be restored on another phone.")
+                    OutlinedTextField(value = passphrase, onValueChange = { passphrase = it },
+                        label = { Text("Backup passphrase") }, singleLine = true,
+                        visualTransformation = PasswordVisualTransformation())
+                    OutlinedTextField(value = confirmation, onValueChange = { confirmation = it },
+                        label = { Text("Confirm passphrase") }, singleLine = true,
+                        visualTransformation = PasswordVisualTransformation())
+                }
+            },
+            confirmButton = {
+                TextButton(enabled = passphrase.length >= 12 && passphrase == confirmation, onClick = {
+                    manualBackupPassphrase = passphrase
+                    passphrase = ""; confirmation = ""; showManualEncryptedExport = false
+                    runCatching { createBackupLauncher.launch("LifeTrack-backup.ltb.json") }
+                        .onFailure {
+                            manualBackupPassphrase = null
+                            backupMessage = "Cannot open backup file picker: ${it.message}"
+                        }
+                }) { Text("Choose export location") }
+            },
+            dismissButton = {
+                TextButton(onClick = {
+                    passphrase = ""; confirmation = ""; showManualEncryptedExport = false
+                }) { Text("Cancel") }
+            }
+        )
+    }
+    if (pendingEncryptedRestore != null) {
+        var importPassphrase by remember { mutableStateOf("") }
+        var importError by remember { mutableStateOf<String?>(null) }
+        var importBusy by remember { mutableStateOf(false) }
+        AlertDialog(
+            onDismissRequest = { importPassphrase = ""; pendingEncryptedRestore = null },
+            title = { Text("Unlock encrypted backup") },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text("Enter the passphrase used when this backup was exported. Your existing records will not change until you confirm restore.")
+                    OutlinedTextField(value = importPassphrase, onValueChange = { importPassphrase = it },
+                        label = { Text("Backup passphrase") }, singleLine = true,
+                        visualTransformation = PasswordVisualTransformation())
+                    if (importError != null) Text(importError!!, color = MaterialTheme.colorScheme.error)
+                }
+            },
+            confirmButton = {
+                TextButton(enabled = importPassphrase.isNotEmpty() && !importBusy, onClick = {
+                    val raw = pendingEncryptedRestore ?: return@TextButton
+                    val password = importPassphrase
+                    importBusy = true
+                    backupScope.launch {
+                        val result = withContext(kotlinx.coroutines.Dispatchers.IO) { runCatching {
+                            LifeTrackBackup.decode(PortableBackupCrypto.decrypt(raw, password))
+                        } }
+                        if (pendingEncryptedRestore !== raw) return@launch
+                        importBusy = false
+                        result.onSuccess {
+                            pendingRestore = it
+                            pendingEncryptedRestore = null
+                            backupMessage = null
+                            importPassphrase = ""
+                        }.onFailure { importError = it.message ?: "Wrong passphrase or damaged file" }
+                    }
+                }) { Text("Unlock backup") }
+            },
+            dismissButton = {
+                TextButton(onClick = { importPassphrase = ""; pendingEncryptedRestore = null }) {
+                    Text("Cancel")
+                }
+            }
+        )
+    }
     if (pendingRestore != null) {
         AlertDialog(
             onDismissRequest = { pendingRestore = null },

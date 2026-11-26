@@ -27,6 +27,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -73,6 +74,8 @@ fun BackupSyncScreen(
     var storageBreakdown by remember { mutableStateOf(CloudSyncRepository.calculateStorageBreakdown(context)) }
     var lastSnapshot by remember { mutableStateOf(CloudSyncRepository.getSnapshots(context).firstOrNull()) }
     var externalFolderConfigured by remember { mutableStateOf(OffDeviceBackupStore.isConfigured(context)) }
+    var encryptedBackupConfigured by remember { mutableStateOf(BackupPassphraseVault.unlock(context) != null) }
+    var showBackupPassphraseDialog by remember { mutableStateOf(false) }
 
     fun refreshAll() {
         account = CloudSyncRepository.getAccount(context)
@@ -81,12 +84,17 @@ fun BackupSyncScreen(
         storageBreakdown = CloudSyncRepository.calculateStorageBreakdown(context)
         lastSnapshot = CloudSyncRepository.getSnapshots(context).firstOrNull()
         externalFolderConfigured = OffDeviceBackupStore.isConfigured(context)
+        encryptedBackupConfigured = BackupPassphraseVault.unlock(context) != null
     }
 
     val folderPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocumentTree()) { uri ->
         if (uri != null) {
             OffDeviceBackupStore.selectFolder(context, uri)
-                .onSuccess { refreshAll(); Toast.makeText(context, "Backup folder selected", Toast.LENGTH_LONG).show() }
+                .onSuccess {
+                    refreshAll()
+                    BackupSyncScheduler.scheduleDailyBackup(context)
+                    Toast.makeText(context, "Encrypted backup folder selected", Toast.LENGTH_LONG).show()
+                }
                 .onFailure { Toast.makeText(context, "Folder access failed: ${it.message}", Toast.LENGTH_LONG).show() }
         }
     }
@@ -232,7 +240,12 @@ fun BackupSyncScreen(
                 Toast.makeText(context, "Signed out. Local notes, tasks, and data preserved.", Toast.LENGTH_SHORT).show()
             },
             onOpenManualBackup = { currentView = "ManualBackup" },
-            onSelectBackupFolder = { folderPicker.launch(null) },
+            onSelectBackupFolder = {
+                if (BackupPassphraseVault.unlock(context) != null) folderPicker.launch(null)
+                else showBackupPassphraseDialog = true
+            },
+            encryptedBackupConfigured = encryptedBackupConfigured,
+            onConfigureBackupPassphrase = { showBackupPassphraseDialog = true },
             externalFolderConfigured = externalFolderConfigured,
             onOpenRestore = { currentView = "RestoreData" },
             onOpenDetailedSettings = { currentView = "DetailedSettings" },
@@ -252,6 +265,49 @@ fun BackupSyncScreen(
             },
             onNavigateBack = onNavigateBack,
             modifier = Modifier.fillMaxSize()
+        )
+    }
+
+    if (showBackupPassphraseDialog) {
+        var passphrase by remember { mutableStateOf("") }
+        var confirmation by remember { mutableStateOf("") }
+        AlertDialog(
+            onDismissRequest = {
+                passphrase = ""; confirmation = ""; showBackupPassphraseDialog = false
+            },
+            title = { Text("Encrypt Drive/Files backups") },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Text("Choose a memorable passphrase (12+ characters). You'll need it to restore on another phone. LifeTrack cannot recover a forgotten passphrase.")
+                    OutlinedTextField(value = passphrase, onValueChange = { passphrase = it },
+                        label = { Text("Backup passphrase") }, singleLine = true,
+                        visualTransformation = PasswordVisualTransformation())
+                    OutlinedTextField(value = confirmation, onValueChange = { confirmation = it },
+                        label = { Text("Confirm passphrase") }, singleLine = true,
+                        visualTransformation = PasswordVisualTransformation())
+                    if (encryptedBackupConfigured) Text("Changing this passphrase will not re-encrypt older backups. Keep the old passphrase for those files.",
+                        color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
+                }
+            },
+            confirmButton = {
+                TextButton(enabled = passphrase.length >= 12 && passphrase == confirmation, onClick = {
+                    runCatching { BackupPassphraseVault.remember(context, passphrase) }
+                        .onSuccess {
+                            passphrase = ""; confirmation = ""; showBackupPassphraseDialog = false
+                            refreshAll()
+                            BackupSyncScheduler.scheduleDailyBackup(context)
+                            Toast.makeText(context, "Encrypted backup passphrase configured", Toast.LENGTH_LONG).show()
+                            if (!externalFolderConfigured) folderPicker.launch(null)
+                        }.onFailure {
+                            Toast.makeText(context, "Could not protect passphrase: ${it.message}", Toast.LENGTH_LONG).show()
+                        }
+                }) { Text("Enable encrypted backups") }
+            },
+            dismissButton = {
+                TextButton(onClick = {
+                    passphrase = ""; confirmation = ""; showBackupPassphraseDialog = false
+                }) { Text("Cancel") }
+            }
         )
     }
 }
@@ -461,6 +517,8 @@ fun SyncDashboardScreen(
     onSignOut: () -> Unit,
     onOpenManualBackup: () -> Unit,
     onSelectBackupFolder: () -> Unit,
+    encryptedBackupConfigured: Boolean,
+    onConfigureBackupPassphrase: () -> Unit,
     externalFolderConfigured: Boolean,
     onOpenRestore: () -> Unit,
     onOpenDetailedSettings: () -> Unit,
@@ -761,8 +819,21 @@ fun SyncDashboardScreen(
                             Divider(color = CardBorder, thickness = 0.5.dp)
 
                             DashboardConfigRow(
+                                title = "Encrypted backup passphrase",
+                                value = if (encryptedBackupConfigured) "Protected on this device" else "Required for Drive/Files backup",
+                                icon = Icons.Default.Lock,
+                                onClick = onConfigureBackupPassphrase
+                            )
+
+                            Divider(color = CardBorder, thickness = 0.5.dp)
+
+                            DashboardConfigRow(
                                 title = "Off-device backup folder",
-                                value = if (externalFolderConfigured) "Selected · verify in Drive/Files" else "Not selected · local only",
+                                value = when {
+                                    externalFolderConfigured && !encryptedBackupConfigured -> "Paused · set passphrase"
+                                    externalFolderConfigured -> "Encrypted · verify in Drive/Files"
+                                    else -> "Not selected · local only"
+                                },
                                 icon = Icons.Default.FolderOpen,
                                 onClick = onSelectBackupFolder
                             )

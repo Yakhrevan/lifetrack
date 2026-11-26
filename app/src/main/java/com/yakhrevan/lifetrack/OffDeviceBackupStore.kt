@@ -34,25 +34,31 @@ object OffDeviceBackupStore {
             .putString(FOLDER, uri.toString()).apply()
     }
 
-    /** Creates and verifies a real document at the user's selected location. */
+    /** Creates and verifies an encrypted, passphrase-portable document at the selected location. */
     fun writeVerified(context: Context, payload: String, atMillis: Long): Result<String> = runCatching {
         LifeTrackBackup.decode(payload) // Never export an invalid backup.
+        val passphrase = requireNotNull(BackupPassphraseVault.unlock(context)) {
+            "Set a backup passphrase in Backup & Sync before exporting to Drive/Files."
+        }
+        val encrypted = PortableBackupCrypto.encrypt(payload, passphrase)
         val uri = requireNotNull(folderUri(context)) { "Select a backup folder first" }
         val folder = requireNotNull(DocumentFile.fromTreeUri(context, uri)) { "Backup folder inaccessible" }
         require(folder.isDirectory && folder.canWrite()) { "Backup folder is no longer writable" }
         val stamp = SimpleDateFormat("yyyyMMdd-HHmmss", Locale.US).format(Date(atMillis))
-        val document = requireNotNull(folder.createFile("application/json", "LifeTrack-$stamp.json")) {
+        val document = requireNotNull(folder.createFile("application/json", "LifeTrack-$stamp.ltb.json")) {
             "Cannot create backup document"
         }
         try {
             context.contentResolver.openOutputStream(document.uri, "wt")?.bufferedWriter(Charsets.UTF_8)?.use {
-                it.write(payload)
+                it.write(encrypted)
             } ?: error("Cannot write backup document")
             val readBack = context.contentResolver.openInputStream(document.uri)?.bufferedReader(Charsets.UTF_8)?.use {
                 it.readText()
             } ?: error("Cannot verify backup document")
-            require(sha256(readBack) == sha256(payload)) { "Backup verification failed" }
-            LifeTrackBackup.decode(readBack)
+            require(sha256(readBack) == sha256(encrypted)) { "Backup verification failed" }
+            require(PortableBackupCrypto.decrypt(readBack, passphrase) == payload) {
+                "Encrypted backup verification failed"
+            }
             document.uri.toString()
         } catch (e: Exception) {
             document.delete() // Only the incomplete document created in this call.
